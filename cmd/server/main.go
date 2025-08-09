@@ -2,10 +2,12 @@ package main
 
 import (
 	"log"
-	"net/http"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	
+	api "bookmark-chat/api/generated"
+	"bookmark-chat/internal/handlers"
 )
 
 func main() {
@@ -15,11 +17,26 @@ func main() {
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORS())
 
-	e.GET("/", func(c echo.Context) error {
-		return c.JSON(http.StatusOK, map[string]string{
-			"message": "Hello World!",
-		})
-	})
+	// Create handler instance
+	handler := handlers.NewHandler()
 
+	// Register all generated handlers
+	api.RegisterHandlers(e, handler)
+
+	log.Println("Server starting on :8080")
+	log.Println("Available endpoints:")
+	log.Println("  GET    /api/bookmarks")
+	log.Println("  POST   /api/bookmarks/import")
+	log.Println("  GET    /api/bookmarks/{id}")
+	log.Println("  PUT    /api/bookmarks/{id}")
+	log.Println("  DELETE /api/bookmarks/{id}")
+	log.Println("  POST   /api/bookmarks/{id}/rescrape")
+	log.Println("  POST   /api/search")
+	log.Println("  POST   /api/chat")
+	log.Println("  GET    /api/chat/conversations")
+	log.Println("  GET    /api/chat/conversations/{id}")
+	log.Println("  GET    /api/health")
+	log.Println("  GET    /api/stats")
+	
 	log.Fatal(e.Start(":8080"))
 }

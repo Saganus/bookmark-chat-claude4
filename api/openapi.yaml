@@ -1,24 +1,713 @@
 openapi: 3.0.3
 info:
   title: Bookmark Chat API
+  description: Backend API for bookmark chat system with semantic search and NLP
   version: 1.0.0
-  description: API for bookmark chat application
+  contact:
+    name: API Support
+    email: support@bookmarkchat.com
 
 servers:
   - url: http://localhost:8080
+    description: Development server
 
 paths:
-  /:
-    get:
-      summary: Health check endpoint
+  # Bookmark Management Endpoints
+  /api/bookmarks/import:
+    post:
+      summary: Import bookmarks from file
+      description: Import bookmarks from Firefox JSON or Chrome HTML format
+      operationId: importBookmarks
+      tags:
+        - bookmarks
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Bookmark file (JSON or HTML format)
       responses:
         '200':
-          description: Successful response
+          description: Import completed successfully
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "Hello World!"
+                $ref: '#/components/schemas/ImportResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/bookmarks:
+    get:
+      summary: List all bookmarks
+      description: Get a paginated list of bookmarks with optional filtering and sorting
+      operationId: listBookmarks
+      tags:
+        - bookmarks
+      parameters:
+        - name: page
+          in: query
+          description: Page number (1-based)
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          description: Number of items per page
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: filter
+          in: query
+          description: Filter bookmarks by title or URL
+          schema:
+            type: string
+        - name: sort
+          in: query
+          description: Sort field and order (e.g., "created_at:desc")
+          schema:
+            type: string
+            enum: ["created_at:asc", "created_at:desc", "updated_at:asc", "updated_at:desc", "title:asc", "title:desc"]
+            default: "created_at:desc"
+      responses:
+        '200':
+          description: Paginated bookmark list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookmarkListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/bookmarks/{id}:
+    get:
+      summary: Get bookmark details
+      description: Get full bookmark information including content and metadata
+      operationId: getBookmark
+      tags:
+        - bookmarks
+      parameters:
+        - $ref: '#/components/parameters/BookmarkId'
+      responses:
+        '200':
+          description: Bookmark details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookmarkDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    
+    put:
+      summary: Update bookmark
+      description: Update bookmark metadata and properties
+      operationId: updateBookmark
+      tags:
+        - bookmarks
+      parameters:
+        - $ref: '#/components/parameters/BookmarkId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookmarkUpdate'
+      responses:
+        '200':
+          description: Updated bookmark
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookmarkDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    
+    delete:
+      summary: Delete bookmark
+      description: Permanently delete a bookmark and its associated data
+      operationId: deleteBookmark
+      tags:
+        - bookmarks
+      parameters:
+        - $ref: '#/components/parameters/BookmarkId'
+      responses:
+        '204':
+          description: Bookmark deleted successfully
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/bookmarks/{id}/rescrape:
+    post:
+      summary: Re-scrape bookmark content
+      description: Re-fetch and update the content of a bookmark
+      operationId: rescrapeBookmark
+      tags:
+        - bookmarks
+      parameters:
+        - $ref: '#/components/parameters/BookmarkId'
+      responses:
+        '200':
+          description: Updated bookmark with new content
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookmarkDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # Search Endpoints
+  /api/search:
+    post:
+      summary: Hybrid search
+      description: Perform semantic, keyword, or hybrid search on bookmarks
+      operationId: searchBookmarks
+      tags:
+        - search
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRequest'
+      responses:
+        '200':
+          description: Search results with relevance scores
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # Chat Endpoints
+  /api/chat:
+    post:
+      summary: Send chat message
+      description: Send a message and receive an AI-generated response with relevant bookmarks
+      operationId: sendChatMessage
+      tags:
+        - chat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+      responses:
+        '200':
+          description: Chat response with sources
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/chat/conversations:
+    get:
+      summary: List conversations
+      description: Get a list of all chat conversations
+      operationId: listConversations
+      tags:
+        - chat
+      responses:
+        '200':
+          description: List of conversation summaries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationListResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/chat/conversations/{id}:
+    get:
+      summary: Get conversation history
+      description: Get full conversation with all messages
+      operationId: getConversation
+      tags:
+        - chat
+      parameters:
+        - $ref: '#/components/parameters/ConversationId'
+      responses:
+        '200':
+          description: Full conversation with messages
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # System Endpoints
+  /api/health:
+    get:
+      summary: Health check
+      description: Check if the API is running and healthy
+      operationId: healthCheck
+      tags:
+        - system
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: Service is unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /api/stats:
+    get:
+      summary: System statistics
+      description: Get system statistics including bookmark count and index status
+      operationId: getSystemStats
+      tags:
+        - system
+      responses:
+        '200':
+          description: System statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  parameters:
+    BookmarkId:
+      name: id
+      in: path
+      required: true
+      description: Bookmark ID
+      schema:
+        type: string
+        format: uuid
+    
+    ConversationId:
+      name: id
+      in: path
+      required: true
+      description: Conversation ID
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    # Bookmark schemas
+    Bookmark:
+      type: object
+      required:
+        - id
+        - url
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          format: uri
+        title:
+          type: string
+        description:
+          type: string
+        folder_path:
+          type: string
+        favicon_url:
+          type: string
+          format: uri
+        tags:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        scraped_at:
+          type: string
+          format: date-time
+
+    BookmarkDetail:
+      allOf:
+        - $ref: '#/components/schemas/Bookmark'
+        - type: object
+          properties:
+            content:
+              type: string
+              description: Scraped content of the bookmark
+
+    BookmarkUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        folder_path:
+          type: string
+
+    BookmarkListResponse:
+      type: object
+      required:
+        - bookmarks
+        - pagination
+      properties:
+        bookmarks:
+          type: array
+          items:
+            $ref: '#/components/schemas/Bookmark'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    # Import schemas
+    ImportResponse:
+      type: object
+      required:
+        - status
+        - statistics
+      properties:
+        status:
+          type: string
+          enum: [success, partial, failed]
+        statistics:
+          type: object
+          properties:
+            total_found:
+              type: integer
+            successfully_imported:
+              type: integer
+            failed:
+              type: integer
+            duplicates:
+              type: integer
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              url:
+                type: string
+              error:
+                type: string
+
+    # Search schemas
+    SearchRequest:
+      type: object
+      required:
+        - query
+      properties:
+        query:
+          type: string
+          minLength: 1
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+        search_type:
+          type: string
+          enum: [semantic, keyword, hybrid]
+          default: hybrid
+
+    SearchResponse:
+      type: object
+      required:
+        - results
+        - total_results
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchResult'
+        total_results:
+          type: integer
+
+    SearchResult:
+      type: object
+      required:
+        - bookmark
+        - relevance_score
+      properties:
+        bookmark:
+          $ref: '#/components/schemas/Bookmark'
+        relevance_score:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+        snippet:
+          type: string
+          description: Highlighted snippet from the content
+
+    # Chat schemas
+    ChatRequest:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          minLength: 1
+        conversation_id:
+          type: string
+          format: uuid
+        context:
+          type: array
+          items:
+            type: string
+          description: Additional context bookmark IDs
+
+    ChatResponse:
+      type: object
+      required:
+        - reply
+        - conversation_id
+      properties:
+        reply:
+          type: string
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/Bookmark'
+        conversation_id:
+          type: string
+          format: uuid
+
+    ConversationSummary:
+      type: object
+      required:
+        - id
+        - title
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        message_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ConversationListResponse:
+      type: object
+      required:
+        - conversations
+      properties:
+        conversations:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConversationSummary'
+
+    ConversationDetail:
+      type: object
+      required:
+        - id
+        - title
+        - messages
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Message:
+      type: object
+      required:
+        - id
+        - role
+        - content
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+        bookmark_refs:
+          type: array
+          items:
+            type: string
+            format: uuid
+        created_at:
+          type: string
+          format: date-time
+
+    # System schemas
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - timestamp
+      properties:
+        status:
+          type: string
+          enum: [healthy, unhealthy]
+        timestamp:
+          type: string
+          format: date-time
+        services:
+          type: object
+          properties:
+            database:
+              type: string
+              enum: [up, down]
+            embeddings:
+              type: string
+              enum: [up, down]
+            scraper:
+              type: string
+              enum: [up, down]
+
+    StatsResponse:
+      type: object
+      required:
+        - bookmark_count
+        - conversation_count
+        - index_status
+      properties:
+        bookmark_count:
+          type: integer
+        conversation_count:
+          type: integer
+        index_status:
+          type: object
+          properties:
+            embeddings_generated:
+              type: integer
+            embeddings_pending:
+              type: integer
+            last_indexed:
+              type: string
+              format: date-time
+        storage_size_mb:
+          type: number
+          format: float
+
+    # Common schemas
+    Pagination:
+      type: object
+      required:
+        - page
+        - limit
+        - total_pages
+        - total_items
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total_pages:
+          type: integer
+        total_items:
+          type: integer
+
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+tags:
+  - name: bookmarks
+    description: Bookmark management operations
+  - name: search
+    description: Search operations
+  - name: chat
+    description: Chat and conversation operations
+  - name: system
+    description: System health and statistics
