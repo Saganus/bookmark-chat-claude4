@@ -16,7 +16,7 @@ Build a Go-based backend API server for a bookmark chat system that allows users
 
 ## Project Structure
 ```
-bookmark-chat-backend/
+/
 ├── api/
 │   ├── openapi.yaml              # OpenAPI specification
 │   └── generated/                # Generated code from oapi-codegen

@@ -4,43 +4,91 @@ import (
 	"net/http"
 	"time"
 
+	api "bookmark-chat/api/generated"
+	"bookmark-chat/internal/services"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
-	api "bookmark-chat/api/generated"
 )
 
-type Handler struct{}
+type Handler struct{
+	importService *services.ImportService
+}
 
 func NewHandler() *Handler {
-	return &Handler{}
+	return &Handler{
+		importService: services.NewImportService(),
+	}
 }
 
 // Import bookmarks from file
 // (POST /api/bookmarks/import)
 func (h *Handler) ImportBookmarks(ctx echo.Context) error {
-	return ctx.JSON(http.StatusOK, api.ImportResponse{
-		Status: api.Success,
+	// Get the uploaded file
+	file, err := ctx.FormFile("file")
+	if err != nil {
+		return ctx.JSON(http.StatusBadRequest, api.Error{
+			Error:   "bad_request",
+			Message: "No file provided or invalid form data",
+		})
+	}
+
+	// Validate the file
+	if err := h.importService.ValidateFile(file); err != nil {
+		return ctx.JSON(http.StatusBadRequest, api.Error{
+			Error:   "bad_request",
+			Message: err.Error(),
+		})
+	}
+
+	// Import the bookmarks
+	importResult, parseResult, err := h.importService.ImportBookmarksFromFile(file)
+	if err != nil {
+		return ctx.JSON(http.StatusInternalServerError, api.Error{
+			Error:   "import_failed",
+			Message: err.Error(),
+		})
+	}
+
+	// Convert to API response format
+	response := api.ImportResponse{
+		Status: api.ImportResponseStatus(importResult.Status),
 		Statistics: struct {
-			Duplicates          *int `json:"duplicates,omitempty"`
-			Failed              *int `json:"failed,omitempty"`
+			Duplicates           *int `json:"duplicates,omitempty"`
+			Failed               *int `json:"failed,omitempty"`
 			SuccessfullyImported *int `json:"successfully_imported,omitempty"`
-			TotalFound          *int `json:"total_found,omitempty"`
+			TotalFound           *int `json:"total_found,omitempty"`
 		}{
-			TotalFound:          intPtr(150),
-			SuccessfullyImported: intPtr(145),
-			Failed:              intPtr(3),
-			Duplicates:          intPtr(2),
+			TotalFound:           &importResult.Statistics.TotalFound,
+			SuccessfullyImported: &importResult.Statistics.SuccessfullyImported,
+			Failed:               &importResult.Statistics.Failed,
+			Duplicates:           &importResult.Statistics.Duplicates,
 		},
-		Errors: &[]struct {
+	}
+
+	// Convert errors to API format
+	if len(importResult.Errors) > 0 {
+		errors := make([]struct {
 			Error *string `json:"error,omitempty"`
 			Url   *string `json:"url,omitempty"`
-		}{
-			{
-				Url:   strPtr("https://example.com/broken"),
-				Error: strPtr("Failed to fetch content"),
-			},
-		},
-	})
+		}, len(importResult.Errors))
+		
+		for i, importErr := range importResult.Errors {
+			errors[i] = struct {
+				Error *string `json:"error,omitempty"`
+				Url   *string `json:"url,omitempty"`
+			}{
+				Url:   &importErr.URL,
+				Error: &importErr.Error,
+			}
+		}
+		response.Errors = &errors
+	}
+
+	// Log the parsed structure for debugging
+	ctx.Logger().Infof("Import completed: %s format, %d bookmarks, %d folders", 
+		parseResult.Source, parseResult.TotalCount, len(parseResult.Folders))
+
+	return ctx.JSON(http.StatusOK, response)
 }
 
 // List all bookmarks
