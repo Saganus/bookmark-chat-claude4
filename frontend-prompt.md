@@ -16,11 +16,11 @@ Build a responsive web interface for a bookmark chat system using vanilla JavaSc
 
 ## Project Structure
 ```
-bookmark-chat-frontend/
+frontend/
 ├── index.html                    # Main application page
 ├── css/
 │   ├── main.css                 # Main stylesheet
-│   ├── components/              
+│   ├── components/
 │   │   ├── chat.css             # Chat interface styles
 │   │   ├── bookmarks.css       # Bookmark list/grid styles
 │   │   ├── search.css          # Search interface styles
@@ -55,7 +55,7 @@ bookmark-chat-frontend/
     <header class="app-header">
         <!-- Logo, navigation, user menu -->
     </header>
-    
+
     <nav class="sidebar" id="sidebar">
         <!-- Collapsible on mobile -->
         <div class="sidebar-section">
@@ -65,7 +65,7 @@ bookmark-chat-frontend/
             <!-- Bookmark folders -->
         </div>
     </nav>
-    
+
     <main class="main-content">
         <div class="chat-container" id="chatView">
             <!-- Primary chat interface -->
@@ -74,7 +74,7 @@ bookmark-chat-frontend/
             <!-- Bookmark management view -->
         </div>
     </main>
-    
+
     <div class="mobile-nav">
         <!-- Bottom navigation for mobile -->
     </div>
@@ -91,7 +91,7 @@ bookmark-chat-frontend/
             <button class="btn-history">History</button>
         </div>
     </div>
-    
+
     <div class="messages-container" id="messagesContainer">
         <!-- Scrollable message list -->
         <div class="message message--user">
@@ -106,14 +106,14 @@ bookmark-chat-frontend/
             </div>
         </div>
     </div>
-    
+
     <div class="chat-input-container">
         <div class="search-suggestions" id="searchSuggestions">
             <!-- Dynamic suggestions -->
         </div>
         <form class="chat-form" id="chatForm">
-            <textarea 
-                class="chat-input" 
+            <textarea
+                class="chat-input"
                 placeholder="Ask about your bookmarks..."
                 rows="1"
             ></textarea>
@@ -141,13 +141,13 @@ bookmark-chat-frontend/
             </select>
         </div>
     </div>
-    
+
     <div class="bookmarks-stats">
         <!-- Statistics bar -->
         <span class="stat">Total: <strong id="totalCount">0</strong></span>
         <span class="stat">Indexed: <strong id="indexedCount">0</strong></span>
     </div>
-    
+
     <div class="bookmarks-grid" id="bookmarksGrid">
         <!-- Bookmark cards -->
         <article class="bookmark-card">
@@ -191,14 +191,14 @@ bookmark-chat-frontend/
                     </label>
                 </div>
             </div>
-            
+
             <div class="file-upload-area" id="uploadArea">
                 <input type="file" id="fileInput" accept=".json,.html">
                 <label for="fileInput" class="file-upload-label">
                     <span>Drop file here or click to browse</span>
                 </label>
             </div>
-            
+
             <div class="import-progress" style="display:none;">
                 <div class="progress-bar">
                     <div class="progress-fill"></div>
@@ -226,18 +226,18 @@ bookmark-chat-frontend/
     --color-border: #e5e7eb;
     --color-error: #ef4444;
     --color-success: #10b981;
-    
+
     /* Spacing */
     --spacing-xs: 0.25rem;
     --spacing-sm: 0.5rem;
     --spacing-md: 1rem;
     --spacing-lg: 1.5rem;
     --spacing-xl: 2rem;
-    
+
     /* Typography */
     --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     --font-mono: "SF Mono", Monaco, "Cascadia Code", monospace;
-    
+
     /* Breakpoints */
     --breakpoint-sm: 640px;
     --breakpoint-md: 768px;
@@ -294,7 +294,7 @@ class APIClient {
     constructor(baseURL = '/api') {
         this.baseURL = baseURL;
     }
-    
+
     async request(endpoint, options = {}) {
         const url = `${this.baseURL}${endpoint}`;
         const config = {
@@ -304,7 +304,7 @@ class APIClient {
                 ...options.headers,
             },
         };
-        
+
         try {
             const response = await fetch(url, config);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -314,16 +314,16 @@ class APIClient {
             throw error;
         }
     }
-    
+
     // Bookmark methods
     async getBookmarks(params = {}) { /* ... */ }
     async importBookmarks(file, type) { /* ... */ }
     async deleteBookmark(id) { /* ... */ }
-    
+
     // Chat methods
     async sendMessage(message, conversationId) { /* ... */ }
     async getConversations() { /* ... */ }
-    
+
     // Search methods
     async search(query, options) { /* ... */ }
 }
@@ -339,12 +339,12 @@ class ChatComponent {
         this.conversationId = null;
         this.init();
     }
-    
+
     init() {
         this.bindEvents();
         this.loadConversation();
     }
-    
+
     bindEvents() {
         $('#chatForm').on('submit', (e) => this.handleSubmit(e));
         $('.chat-input').on('input', (e) => this.handleInput(e));
@@ -352,28 +352,28 @@ class ChatComponent {
         // Show suggestions
         // Handle keyboard shortcuts
     }
-    
+
     async handleSubmit(e) {
         e.preventDefault();
         const message = $('.chat-input').val().trim();
         if (!message) return;
-        
+
         // Add user message to UI
         this.addMessage(message, 'user');
-        
+
         // Clear input
         $('.chat-input').val('').trigger('input');
-        
+
         // Show typing indicator
         this.showTypingIndicator();
-        
+
         try {
             // Send to API
             const response = await this.api.sendMessage(message, this.conversationId);
-            
+
             // Update conversation ID
             this.conversationId = response.conversationId;
-            
+
             // Add assistant response
             this.addMessage(response.reply, 'assistant', response.sources);
         } catch (error) {
@@ -382,13 +382,13 @@ class ChatComponent {
             this.hideTypingIndicator();
         }
     }
-    
+
     addMessage(content, role, sources = []) {
         const messageHTML = this.renderMessage(content, role, sources);
         $('#messagesContainer').append(messageHTML);
         this.scrollToBottom();
     }
-    
+
     renderMessage(content, role, sources) {
         // Generate message HTML with markdown support
         // Include source citations if provided
@@ -407,31 +407,31 @@ class BookmarkManager {
         this.viewMode = 'grid';
         this.init();
     }
-    
+
     async init() {
         await this.loadBookmarks();
         this.bindEvents();
         this.render();
     }
-    
+
     bindEvents() {
         // Import button
         $('.btn-import').on('click', () => this.showImportModal());
-        
+
         // View mode toggle
         $('.btn-view-mode').on('click', (e) => this.toggleViewMode(e));
-        
+
         // Search input
         $('.bookmarks-search input').on('input', debounce((e) => {
             this.filterBookmarks(e.target.value);
         }, 300));
-        
+
         // Bookmark actions (delegation)
         $(this.container).on('click', '.bookmark-card', (e) => {
             this.handleBookmarkAction(e);
         });
     }
-    
+
     async loadBookmarks() {
         try {
             this.bookmarks = await this.api.getBookmarks();
@@ -440,9 +440,9 @@ class BookmarkManager {
             this.showError('Failed to load bookmarks');
         }
     }
-    
+
     render() {
-        const html = this.bookmarks.map(bookmark => 
+        const html = this.bookmarks.map(bookmark =>
             this.renderBookmarkCard(bookmark)
         ).join('');
         $('#bookmarksGrid').html(html);
@@ -458,50 +458,50 @@ class ImportHandler {
         this.api = api;
         this.init();
     }
-    
+
     init() {
         this.setupDragDrop();
         this.bindEvents();
     }
-    
+
     setupDragDrop() {
         const dropArea = $('#uploadArea');
-        
+
         ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
             dropArea.on(eventName, (e) => {
                 e.preventDefault();
                 e.stopPropagation();
             });
         });
-        
+
         dropArea.on('dragenter dragover', () => {
             dropArea.addClass('drag-active');
         });
-        
+
         dropArea.on('dragleave drop', () => {
             dropArea.removeClass('drag-active');
         });
-        
+
         dropArea.on('drop', (e) => {
             const files = e.originalEvent.dataTransfer.files;
             this.handleFiles(files);
         });
     }
-    
+
     async handleFiles(files) {
         if (files.length === 0) return;
-        
+
         const file = files[0];
         const type = $('input[name="importType"]:checked').val();
-        
+
         if (!type) {
             alert('Please select browser type');
             return;
         }
-        
+
         // Show progress
         $('.import-progress').show();
-        
+
         try {
             const result = await this.api.importBookmarks(file, type);
             this.showSuccess(`Imported ${result.count} bookmarks`);
@@ -544,13 +544,13 @@ class ImportHandler {
     .app-container {
         flex-direction: row;
     }
-    
+
     .sidebar {
         position: relative;
         left: 0;
         width: 250px;
     }
-    
+
     .mobile-nav {
         display: none;
     }
@@ -561,7 +561,7 @@ class ImportHandler {
     .sidebar {
         width: 300px;
     }
-    
+
     .chat-container {
         max-width: 800px;
         margin: 0 auto;

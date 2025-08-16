@@ -86,3 +86,4 @@ When implementing features:
 3. Implement handlers by adding service layer logic
 4. Use the prompt files as detailed implementation guides
 5. Follow Go idioms and Echo framework patterns
+6. Do not add "🤖 Generated with [Claude Code](https://claude.ai/code) Co-Authored-By: Claude <noreply@anthropic.com>" when doing git commit

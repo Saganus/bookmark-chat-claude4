@@ -170,7 +170,6 @@ CREATE TABLE messages (
 - Support Chrome HTML format (bookmark manager export)
 - Parse nested folder structures
 - Extract metadata (title, URL, add_date, tags)
-- Queue URLs for asynchronous scraping
 
 ### 2. Content Scraping Service
 - Use Go's built-in HTML parser or goquery
