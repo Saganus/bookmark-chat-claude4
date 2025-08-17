@@ -1,0 +1,273 @@
+/* Bookmarks and Scraping specific styles */
+
+/* Headers */
+.bookmarks-header,
+.scraping-header {
+    margin-bottom: var(--spacing-lg);
+    padding-bottom: var(--spacing-md);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.bookmarks-actions,
+.scraping-controls {
+    display: flex;
+    gap: var(--spacing-md);
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+/* Select all checkbox */
+.select-all-container {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: 0.875rem;
+    cursor: pointer;
+    user-select: none;
+}
+
+.select-all-container input[type="checkbox"] {
+    margin: 0;
+}
+
+/* Progress section */
+.progress-section {
+    margin-top: var(--spacing-md);
+}
+
+.progress-status {
+    color: var(--color-text-secondary);
+    font-size: 0.875rem;
+    margin: 0;
+}
+
+/* Tree containers */
+.bookmarks-tree-container,
+.scraping-tree-container {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-md);
+    min-height: 400px;
+}
+
+/* Tree styles */
+.bookmarks-tree,
+.scraping-tree {
+    font-family: var(--font-sans);
+}
+
+.tree-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.tree-item {
+    margin: 0;
+    padding: 0;
+}
+
+.tree-item-content {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    min-height: 32px;
+}
+
+.tree-item-content:hover {
+    background-color: var(--color-background);
+}
+
+/* Tree item icons */
+.tree-icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.tree-icon.folder {
+    color: var(--color-warning);
+}
+
+.tree-icon.bookmark {
+    color: var(--color-text-secondary);
+}
+
+/* Folder expand/collapse */
+.folder-toggle {
+    background: none;
+    border: none;
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--color-text-secondary);
+    border-radius: var(--radius-sm);
+    transition: all 0.2s ease;
+}
+
+.folder-toggle:hover {
+    background-color: var(--color-border);
+}
+
+.folder-toggle.expanded {
+    transform: rotate(90deg);
+}
+
+/* Tree text */
+.tree-text {
+    flex: 1;
+    font-size: 0.875rem;
+    color: var(--color-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tree-text.folder-name {
+    font-weight: 500;
+}
+
+.tree-text a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.tree-text a:hover {
+    text-decoration: underline;
+    color: var(--color-primary);
+}
+
+/* Tree nesting */
+.tree-children {
+    margin-left: var(--spacing-lg);
+    border-left: 1px solid var(--color-border);
+    padding-left: var(--spacing-sm);
+}
+
+.tree-children.collapsed {
+    display: none;
+}
+
+/* Scraping specific styles */
+.scraping-tree .tree-item-content {
+    gap: var(--spacing-md);
+}
+
+.scraping-checkbox {
+    margin: 0;
+    flex-shrink: 0;
+}
+
+.bookmark-status {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: auto;
+}
+
+.bookmark-status .status-icon {
+    width: 16px;
+    height: 16px;
+}
+
+/* Status icons using Unicode characters */
+.status-not-scraped::before {
+    content: "⚪";
+    font-size: 12px;
+}
+
+.status-in-progress::before {
+    content: "⏳";
+    font-size: 12px;
+    animation: pulse 1.5s infinite;
+}
+
+.status-scraped::before {
+    content: "✅";
+    font-size: 12px;
+}
+
+.status-error::before {
+    content: "❌";
+    font-size: 12px;
+}
+
+/* Tooltips */
+.tooltip {
+    position: relative;
+}
+
+.tooltip::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: var(--color-text);
+    color: var(--color-background);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    z-index: 1000;
+}
+
+.tooltip:hover::after {
+    opacity: 1;
+}
+
+/* Animations */
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .bookmarks-actions,
+    .scraping-controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .bookmarks-actions .btn,
+    .scraping-controls .btn {
+        justify-content: center;
+    }
+    
+    .tree-children {
+        margin-left: var(--spacing-md);
+    }
+    
+    .tree-text {
+        font-size: 0.8rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .bookmarks-tree-container,
+    .scraping-tree-container {
+        padding: var(--spacing-sm);
+    }
+    
+    .tree-item-content {
+        padding: var(--spacing-sm);
+    }
+}

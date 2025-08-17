@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bookmark Manager & Scraper</title>
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/components/modal.css">
+    <link rel="stylesheet" href="css/components/bookmarks.css">
+    <link rel="stylesheet" href="css/responsive.css">
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <h1>Bookmark Manager</h1>
+        </header>
+
+        <main class="main-content">
+            <!-- Tab Navigation -->
+            <nav class="tab-navigation">
+                <button class="tab-btn active" data-tab="bookmarks">Bookmarks</button>
+                <button class="tab-btn" data-tab="scraping">Scraping</button>
+            </nav>
+
+            <!-- Bookmarks Tab Content -->
+            <div id="bookmarksTab" class="tab-content active">
+                <div class="bookmarks-header">
+                    <div class="bookmarks-actions">
+                        <button class="btn btn-primary" id="importBtn">Import Bookmarks</button>
+                    </div>
+                </div>
+                
+                <div class="bookmarks-tree-container">
+                    <div id="bookmarksTree" class="bookmarks-tree">
+                        <p class="empty-state">No bookmarks imported yet. Click "Import Bookmarks" to get started.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Scraping Tab Content -->
+            <div id="scrapingTab" class="tab-content">
+                <div class="scraping-header">
+                    <div class="scraping-controls">
+                        <button class="btn btn-primary" id="startScrapingBtn">Start Scraping</button>
+                        <button class="btn btn-secondary" id="pauseBtn" disabled>Pause</button>
+                        <button class="btn btn-secondary" id="stopBtn" disabled>Stop</button>
+                        <label class="select-all-container">
+                            <input type="checkbox" id="selectAllBtn">
+                            <span>Select All</span>
+                        </label>
+                    </div>
+                    
+                    <div class="progress-section">
+                        <div class="progress-bar-container">
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: 0%"></div>
+                            </div>
+                        </div>
+                        <p class="progress-status">Idle</p>
+                    </div>
+                </div>
+                
+                <div class="scraping-tree-container">
+                    <div id="scrapingTree" class="scraping-tree">
+                        <p class="empty-state">No bookmarks available for scraping. Please import bookmarks first.</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Import Modal -->
+    <div class="modal" id="importModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Import Bookmarks</h2>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="import-options">
+                    <div class="import-option">
+                        <input type="radio" name="importType" value="firefox" id="firefox">
+                        <label for="firefox">
+                            <strong>Firefox</strong>
+                            <small>HTML format from bookmark backup</small>
+                        </label>
+                    </div>
+                    <div class="import-option">
+                        <input type="radio" name="importType" value="chrome" id="chrome" checked>
+                        <label for="chrome">
+                            <strong>Chrome</strong>
+                            <small>HTML format from bookmark manager</small>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="file-upload-area" id="uploadArea">
+                    <input type="file" id="fileInput" accept=".html,.htm">
+                    <label for="fileInput" class="file-upload-label">
+                        <span>Drop file here or click to browse</span>
+                    </label>
+                </div>
+
+                <div class="import-progress" style="display:none;">
+                    <div class="progress-bar">
+                        <div class="progress-fill"></div>
+                    </div>
+                    <p class="progress-text">Importing...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="js/config.js"></script>
+    <script src="js/utils/dom.js"></script>
+    <script src="js/api/client.js"></script>
+    <script src="js/components/import.js"></script>
+    <script src="js/components/bookmarks.js"></script>
+    <script src="js/components/scraping.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
