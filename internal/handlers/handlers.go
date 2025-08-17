@@ -10,7 +10,7 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-type Handler struct{
+type Handler struct {
 	importService *services.ImportService
 }
 
@@ -71,7 +71,7 @@ func (h *Handler) ImportBookmarks(ctx echo.Context) error {
 			Error *string `json:"error,omitempty"`
 			Url   *string `json:"url,omitempty"`
 		}, len(importResult.Errors))
-		
+
 		for i, importErr := range importResult.Errors {
 			errors[i] = struct {
 				Error *string `json:"error,omitempty"`
@@ -85,7 +85,7 @@ func (h *Handler) ImportBookmarks(ctx echo.Context) error {
 	}
 
 	// Log the parsed structure for debugging
-	ctx.Logger().Infof("Import completed: %s format, %d bookmarks, %d folders", 
+	ctx.Logger().Infof("Import completed: %s format, %d bookmarks, %d folders",
 		parseResult.Source, parseResult.TotalCount, len(parseResult.Folders))
 
 	return ctx.JSON(http.StatusOK, response)
@@ -94,35 +94,16 @@ func (h *Handler) ImportBookmarks(ctx echo.Context) error {
 // List all bookmarks
 // (GET /api/bookmarks)
 func (h *Handler) ListBookmarks(ctx echo.Context, params api.ListBookmarksParams) error {
-	// Example bookmarks
-	bookmarks := []api.Bookmark{
-		{
-			Id:          uuid.New(),
-			Url:         "https://example.com",
-			Title:       strPtr("Example Website"),
-			Description: strPtr("An example website for demonstration"),
-			CreatedAt:   time.Now().Add(-24 * time.Hour),
-			UpdatedAt:   time.Now().Add(-24 * time.Hour),
-			Tags:        &[]string{"example", "demo"},
-		},
-		{
-			Id:          uuid.New(),
-			Url:         "https://golang.org",
-			Title:       strPtr("The Go Programming Language"),
-			Description: strPtr("Official Go language website"),
-			CreatedAt:   time.Now().Add(-48 * time.Hour),
-			UpdatedAt:   time.Now().Add(-48 * time.Hour),
-			Tags:        &[]string{"programming", "golang"},
-		},
-	}
+	// Empty bookmarks list - ready for import
+	bookmarks := []api.Bookmark{}
 
 	return ctx.JSON(http.StatusOK, api.BookmarkListResponse{
 		Bookmarks: bookmarks,
 		Pagination: api.Pagination{
 			Page:       1,
 			Limit:      20,
-			TotalPages: 1,
-			TotalItems: 2,
+			TotalPages: 0,
+			TotalItems: 0,
 		},
 	})
 }
