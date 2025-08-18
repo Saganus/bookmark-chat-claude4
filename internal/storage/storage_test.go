@@ -4,7 +4,6 @@ import (
 	"math/rand"
 	"os"
 	"testing"
-	"time"
 )
 
 func TestStorage(t *testing.T) {
@@ -85,7 +84,7 @@ func testListBookmarksEmpty(store *Storage) func(*testing.T) {
 		defer tempStore.Close()
 		defer os.Remove("empty_test.db")
 
-		bookmarks, err := tempStore.ListBookmarksWithoutEmbeddings(10)
+		bookmarks, err := tempStore.ListBookmarks()
 		if err != nil {
 			t.Errorf("Failed to list bookmarks: %v", err)
 		}

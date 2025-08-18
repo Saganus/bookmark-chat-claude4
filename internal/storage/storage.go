@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/tursodatabase/libsql-client-go/libsql"
+	_ "github.com/tursodatabase/go-libsql"
 )
 
 // Storage represents the database storage layer
@@ -103,7 +103,7 @@ func (s *Storage) initializeSchema() error {
 		`CREATE TABLE IF NOT EXISTS embeddings (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			content_id INTEGER NOT NULL,
-			embedding F32_BLOB(1536),
+			embedding BLOB,
 			model_version TEXT DEFAULT 'text-embedding-3-small',
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY (content_id) REFERENCES content(id) ON DELETE CASCADE
@@ -118,8 +118,8 @@ func (s *Storage) initializeSchema() error {
 			content_rowid='bookmark_id'
 		)`,
 
-		// Create vector index for semantic search
-		`CREATE INDEX IF NOT EXISTS embeddings_vector_idx ON embeddings(libsql_vector_idx(embedding))`,
+		// Create standard index for embeddings
+		`CREATE INDEX IF NOT EXISTS idx_embeddings_content_id_lookup ON embeddings(content_id)`,
 
 		// Create standard indexes for performance
 		`CREATE INDEX IF NOT EXISTS idx_bookmarks_status ON bookmarks(status)`,
@@ -285,8 +285,8 @@ func (s *Storage) StoreEmbedding(contentID int, embedding []float32) error {
 		return fmt.Errorf("failed to marshal embedding: %w", err)
 	}
 
-	query := `INSERT OR REPLACE INTO embeddings (content_id, embedding) VALUES (?, vector32(?))`
-	_, err = s.db.Exec(query, contentID, string(embeddingJSON))
+	query := `INSERT OR REPLACE INTO embeddings (content_id, embedding) VALUES (?, ?)`
+	_, err = s.db.Exec(query, contentID, embeddingJSON)
 	if err != nil {
 		return fmt.Errorf("failed to store embedding: %w", err)
 	}

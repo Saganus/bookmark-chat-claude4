@@ -4,10 +4,8 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
-	"os"
-	"time"
 
-	"github.com/bookmark-chat-claude4/internal/storage"
+	"bookmark-chat/internal/storage"
 )
 
 func main() {
