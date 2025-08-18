@@ -225,7 +225,7 @@ func (s *Storage) SearchBookmarksWithFilters(opts SearchOptions) ([]*SearchResul
 		// Add content if available
 		if contentID.Valid {
 			content.ID = int(contentID.Int64)
-			content.BookmarkID = int(bookmarkID.Int64)
+			content.BookmarkID = bookmark.ID
 			content.RawContent = rawContent.String
 			content.CleanText = cleanText.String
 			content.ContentType = contentType.String
@@ -251,7 +251,7 @@ type SearchOptions struct {
 }
 
 // DeleteBookmark removes a bookmark and all associated data
-func (s *Storage) DeleteBookmark(bookmarkID int) error {
+func (s *Storage) DeleteBookmark(bookmarkID string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -291,7 +291,7 @@ func (s *Storage) DeleteBookmark(bookmarkID int) error {
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("bookmark with ID %d not found", bookmarkID)
+		return fmt.Errorf("bookmark with ID %s not found", bookmarkID)
 	}
 
 	return tx.Commit()

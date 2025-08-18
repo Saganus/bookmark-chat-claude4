@@ -6,17 +6,20 @@ import (
 
 	api "bookmark-chat/api/generated"
 	"bookmark-chat/internal/services"
+	"bookmark-chat/internal/storage"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )
 
 type Handler struct {
 	importService *services.ImportService
+	storage       *storage.Storage
 }
 
-func NewHandler() *Handler {
+func NewHandler(storage *storage.Storage) *Handler {
 	return &Handler{
-		importService: services.NewImportService(),
+		importService: services.NewImportService(storage),
+		storage:       storage,
 	}
 }
 
@@ -94,16 +97,58 @@ func (h *Handler) ImportBookmarks(ctx echo.Context) error {
 // List all bookmarks
 // (GET /api/bookmarks)
 func (h *Handler) ListBookmarks(ctx echo.Context, params api.ListBookmarksParams) error {
-	// Empty bookmarks list - ready for import
-	bookmarks := []api.Bookmark{}
+	// Get bookmarks from database
+	bookmarks, err := h.storage.ListBookmarks()
+	if err != nil {
+		return ctx.JSON(http.StatusInternalServerError, api.Error{
+			Error:   "database_error",
+			Message: "Failed to retrieve bookmarks from database",
+		})
+	}
+
+	// Convert storage bookmarks to API format
+	apiBookmarks := make([]api.Bookmark, len(bookmarks))
+	for i, bookmark := range bookmarks {
+		// Convert string ID to UUID
+		bookmarkUUID, err := uuid.Parse(bookmark.ID)
+		if err != nil {
+			ctx.Logger().Errorf("Invalid bookmark UUID: %s", bookmark.ID)
+			continue
+		}
+
+		apiBookmarks[i] = api.Bookmark{
+			Id:          bookmarkUUID,
+			Url:         bookmark.URL,
+			Title:       &bookmark.Title,
+			Description: &bookmark.Description,
+			FolderPath:  &bookmark.FolderPath,
+			FaviconUrl:  &bookmark.FaviconURL,
+			Tags:        &bookmark.Tags,
+			CreatedAt:   bookmark.CreatedAt,
+			UpdatedAt:   bookmark.UpdatedAt,
+			ScrapedAt:   bookmark.ScrapedAt,
+		}
+	}
+
+	totalItems := len(apiBookmarks)
+	page := 1
+	limit := 20
+	if params.Page != nil {
+		page = *params.Page
+	}
+	if params.Limit != nil {
+		limit = *params.Limit
+	}
+
+	totalPages := (totalItems + limit - 1) / limit
 
 	return ctx.JSON(http.StatusOK, api.BookmarkListResponse{
-		Bookmarks: bookmarks,
+		Bookmarks: apiBookmarks,
 		Pagination: api.Pagination{
-			Page:       1,
-			Limit:      20,
-			TotalPages: 0,
-			TotalItems: 0,
+			Page:       page,
+			Limit:      limit,
+			TotalPages: totalPages,
+			TotalItems: totalItems,
 		},
 	})
 }
@@ -111,16 +156,33 @@ func (h *Handler) ListBookmarks(ctx echo.Context, params api.ListBookmarksParams
 // Get bookmark details
 // (GET /api/bookmarks/{id})
 func (h *Handler) GetBookmark(ctx echo.Context, id api.BookmarkId) error {
+	// Get bookmark from database
+	bookmark, err := h.storage.GetBookmark(id.String())
+	if err != nil {
+		return ctx.JSON(http.StatusNotFound, api.Error{
+			Error:   "bookmark_not_found",
+			Message: "Bookmark not found",
+		})
+	}
+
+	// Get content if available
+	var content *string
+	if dbContent, err := h.storage.GetContent(bookmark.ID); err == nil {
+		content = &dbContent.CleanText
+	}
+
 	return ctx.JSON(http.StatusOK, api.BookmarkDetail{
 		Id:          id,
-		Url:         "https://example.com",
-		Title:       strPtr("Example Website"),
-		Description: strPtr("An example website for demonstration"),
-		Content:     strPtr("This is the scraped content of the webpage. Implementation pending. Here's an example of how a response would look like with full content from the webpage including main article text, metadata, and other relevant information."),
-		CreatedAt:   time.Now().Add(-24 * time.Hour),
-		UpdatedAt:   time.Now().Add(-24 * time.Hour),
-		ScrapedAt:   timePtr(time.Now().Add(-12 * time.Hour)),
-		Tags:        &[]string{"example", "demo"},
+		Url:         bookmark.URL,
+		Title:       &bookmark.Title,
+		Description: &bookmark.Description,
+		Content:     content,
+		CreatedAt:   bookmark.CreatedAt,
+		UpdatedAt:   bookmark.UpdatedAt,
+		ScrapedAt:   bookmark.ScrapedAt,
+		FolderPath:  &bookmark.FolderPath,
+		FaviconUrl:  &bookmark.FaviconURL,
+		Tags:        &bookmark.Tags,
 	})
 }
 

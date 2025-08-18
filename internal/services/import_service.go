@@ -6,17 +6,20 @@ import (
 	"mime/multipart"
 
 	"bookmark-chat/internal/services/parsers"
+	"bookmark-chat/internal/storage"
 )
 
 // ImportService handles the complete bookmark import process
 type ImportService struct {
 	parserService *BookmarkParserService
+	storage       *storage.Storage
 }
 
 // NewImportService creates a new import service
-func NewImportService() *ImportService {
+func NewImportService(storage *storage.Storage) *ImportService {
 	return &ImportService{
 		parserService: NewBookmarkParserService(),
+		storage:       storage,
 	}
 }
 
@@ -35,15 +38,42 @@ func (s *ImportService) ImportBookmarksFromFile(fileHeader *multipart.FileHeader
 		return nil, nil, fmt.Errorf("failed to parse bookmark file: %w", err)
 	}
 
-	// Convert to API format
-	importResult := s.parserService.ConvertToAPIFormat(parseResult)
+	// Store bookmarks in database
+	storageResult, err := s.storage.ImportBookmarks(parseResult)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to store bookmarks in database: %w", err)
+	}
+
+	// Convert storage result to API format
+	importResult := &parsers.ImportResult{
+		Status: "success",
+		Statistics: parsers.ImportStatistics{
+			TotalFound:           storageResult.TotalFound,
+			SuccessfullyImported: storageResult.SuccessfullyImported,
+			Failed:               storageResult.Failed,
+			Duplicates:           storageResult.Duplicates,
+		},
+		Errors: make([]parsers.ImportError, 0),
+	}
+
+	// Convert errors
+	for _, errMsg := range storageResult.Errors {
+		importResult.Errors = append(importResult.Errors, parsers.ImportError{
+			URL:   "",
+			Error: errMsg,
+		})
+	}
+
+	// Set status based on results
+	if storageResult.Failed > 0 && storageResult.SuccessfullyImported == 0 {
+		importResult.Status = "failed"
+	} else if storageResult.Failed > 0 {
+		importResult.Status = "partial"
+	}
 
 	// TODO: In the future, this is where we would:
-	// 1. Check for duplicates against existing bookmarks in database
-	// 2. Store bookmarks in database
-	// 3. Queue URLs for scraping
-	// 4. Generate embeddings
-	// 5. Update statistics with actual import results
+	// 1. Queue URLs for scraping
+	// 2. Generate embeddings
 
 	return importResult, parseResult, nil
 }

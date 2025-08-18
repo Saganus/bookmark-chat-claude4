@@ -8,6 +8,7 @@ import (
 
 	api "bookmark-chat/api/generated"
 	"bookmark-chat/internal/handlers"
+	"bookmark-chat/internal/storage"
 )
 
 func main() {
@@ -17,8 +18,15 @@ func main() {
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORS())
 
-	// Create handler instance
-	handler := handlers.NewHandler()
+	// Initialize storage
+	store, err := storage.New("file:bookmarks.db")
+	if err != nil {
+		log.Fatalf("Failed to initialize storage: %v", err)
+	}
+	defer store.Close()
+
+	// Create handler instance with storage
+	handler := handlers.NewHandler(store)
 
 	// Register all generated handlers
 	api.RegisterHandlers(e, handler)
