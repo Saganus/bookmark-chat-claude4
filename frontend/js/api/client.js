@@ -95,6 +95,17 @@ class APIClient {
     }
 
     /**
+     * Re-scrape bookmark content by ID
+     * @param {string} id - Bookmark ID
+     * @returns {Promise} Updated bookmark with scraped content
+     */
+    async rescrapeBookmark(id) {
+        return await this.request(`/bookmarks/${id}/rescrape`, {
+            method: 'POST',
+        });
+    }
+
+    /**
      * Start scraping selected bookmarks
      * @param {Array} bookmarkIds - Array of bookmark IDs to scrape
      * @returns {Promise} Scraping start result

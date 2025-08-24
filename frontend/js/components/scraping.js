@@ -42,8 +42,8 @@ class ScrapingManager {
         this.container.on('click', '.tree-item-content', (e) => {
             const $target = $(e.target);
             
-            // Don't toggle if clicking on checkbox, link, or status
-            if ($target.is('input, a, .bookmark-status') || $target.closest('input, a, .bookmark-status').length) {
+            // Don't toggle if clicking on checkbox, link, status, or scrape button
+            if ($target.is('input, a, .bookmark-status, .scrape-bookmark-btn') || $target.closest('input, a, .bookmark-status, .scrape-bookmark-btn').length) {
                 return;
             }
 
@@ -51,6 +51,13 @@ class ScrapingManager {
             if ($toggle.length) {
                 this.toggleFolder($toggle);
             }
+        });
+
+        // Individual scrape button clicks
+        this.container.on('click', '.scrape-bookmark-btn', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            await this.scrapeIndividualBookmark($(e.target));
         });
     }
 
@@ -124,6 +131,9 @@ class ScrapingManager {
             const status = item.scrapeStatus || 'not-scraped';
             const tooltip = this.getStatusTooltip(status, item.scrapeError);
             html += `<span class="bookmark-status tooltip status-${status}" data-tooltip="${tooltip}"></span>`;
+            
+            // Add individual scrape button
+            html += `<button class="btn btn-small scrape-bookmark-btn" data-id="${nodeId}" title="Scrape this bookmark">⟳</button>`;
         }
         
         html += `</div>`;
@@ -422,6 +432,48 @@ class ScrapingManager {
                 <button class="btn btn-primary" onclick="window.scrapingManager.loadBookmarks()">Retry</button>
             </div>
         `);
+    }
+
+    async scrapeIndividualBookmark($button) {
+        const bookmarkId = $button.data('id');
+        const $statusElement = $button.siblings('.bookmark-status');
+        
+        try {
+            // Update status to in-progress
+            $statusElement.removeClass('status-not-scraped status-scraped status-error')
+                         .addClass('status-in-progress')
+                         .attr('data-tooltip', 'Scraping...');
+            
+            // Disable the button during scraping
+            $button.prop('disabled', true).addClass('loading');
+            
+            // Call the API to rescrape the bookmark
+            const result = await this.api.rescrapeBookmark(bookmarkId);
+            
+            // Update status to success
+            $statusElement.removeClass('status-in-progress')
+                         .addClass('status-scraped')
+                         .attr('data-tooltip', `Scraped successfully`);
+            
+            // Show success message
+            const title = result.title || 'Bookmark';
+            showToast(`Successfully scraped "${title}"`, 'success');
+            
+        } catch (error) {
+            console.error('Failed to scrape bookmark:', error);
+            
+            // Update status to error
+            $statusElement.removeClass('status-in-progress')
+                         .addClass('status-error')
+                         .attr('data-tooltip', `Error: ${error.message}`);
+            
+            // Show error message
+            showToast(`Failed to scrape bookmark: ${error.message}`, 'error');
+            
+        } finally {
+            // Re-enable the button
+            $button.prop('disabled', false).removeClass('loading');
+        }
     }
 
     // Clean up when component is destroyed

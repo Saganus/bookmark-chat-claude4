@@ -239,6 +239,46 @@
     50% { opacity: 0.5; }
 }
 
+/* Scrape buttons */
+.scrape-bookmark-btn {
+    background: none;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: 2px 6px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-left: auto;
+    opacity: 0;
+    color: var(--color-text-secondary);
+}
+
+.tree-item:hover .scrape-bookmark-btn {
+    opacity: 1;
+}
+
+.scrape-bookmark-btn:hover {
+    background-color: var(--color-primary);
+    color: white;
+    border-color: var(--color-primary);
+    transform: scale(1.1);
+}
+
+.scrape-bookmark-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.scrape-bookmark-btn.loading {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
 /* Responsive design */
 @media (max-width: 768px) {
     .bookmarks-actions,
@@ -269,5 +309,11 @@
     
     .tree-item-content {
         padding: var(--spacing-sm);
+    }
+    
+    .scrape-bookmark-btn {
+        opacity: 1;
+        position: static;
+        margin-left: var(--spacing-xs);
     }
 }

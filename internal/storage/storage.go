@@ -491,6 +491,31 @@ func (s *Storage) UpdateBookmarkStatus(bookmarkID string, status string) error {
 	return nil
 }
 
+// UpdateBookmark updates a bookmark's metadata
+func (s *Storage) UpdateBookmark(bookmark *Bookmark) error {
+	query := `
+		UPDATE bookmarks 
+		SET title = ?, description = ?, favicon_url = ?, updated_at = ?, scraped_at = ?
+		WHERE id = ?
+	`
+	result, err := s.db.Exec(query, bookmark.Title, bookmark.Description, bookmark.FaviconURL, 
+		bookmark.UpdatedAt, bookmark.ScrapedAt, bookmark.ID)
+	if err != nil {
+		return fmt.Errorf("failed to update bookmark: %w", err)
+	}
+	
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	
+	if rowsAffected == 0 {
+		return fmt.Errorf("bookmark with ID %s not found", bookmark.ID)
+	}
+	
+	return nil
+}
+
 // ImportResult represents the result of an import operation
 type ImportResult struct {
 	TotalFound           int               `json:"total_found"`

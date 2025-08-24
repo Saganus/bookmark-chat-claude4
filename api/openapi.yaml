@@ -178,6 +178,168 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  # Bulk Scraping Endpoints
+  /api/scraping/start:
+    post:
+      summary: Start bulk scraping process
+      description: Start scraping content for selected bookmarks
+      operationId: startScraping
+      tags:
+        - scraping
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - bookmark_ids
+              properties:
+                bookmark_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  description: Array of bookmark IDs to scrape
+      responses:
+        '200':
+          description: Scraping started successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "started"
+                  message:
+                    type: string
+                    example: "Started scraping 5 bookmarks"
+                  total_bookmarks:
+                    type: integer
+                    example: 5
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/scraping/pause:
+    post:
+      summary: Pause scraping process
+      description: Pause the current scraping operation
+      operationId: pauseScraping
+      tags:
+        - scraping
+      responses:
+        '200':
+          description: Scraping paused successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "paused"
+                  message:
+                    type: string
+                    example: "Scraping paused"
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/scraping/resume:
+    post:
+      summary: Resume scraping process
+      description: Resume the paused scraping operation
+      operationId: resumeScraping
+      tags:
+        - scraping
+      responses:
+        '200':
+          description: Scraping resumed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "running"
+                  message:
+                    type: string
+                    example: "Scraping resumed"
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/scraping/stop:
+    post:
+      summary: Stop scraping process
+      description: Stop the current scraping operation
+      operationId: stopScraping
+      tags:
+        - scraping
+      responses:
+        '200':
+          description: Scraping stopped successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "stopped"
+                  message:
+                    type: string
+                    example: "Scraping stopped"
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/scraping/status:
+    get:
+      summary: Get scraping status
+      description: Get the current status of the scraping process
+      operationId: getScrapingStatus
+      tags:
+        - scraping
+      responses:
+        '200':
+          description: Current scraping status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: ["idle", "running", "paused", "completed", "stopped"]
+                    example: "running"
+                  current:
+                    type: integer
+                    example: 3
+                  total:
+                    type: integer
+                    example: 10
+                  progress:
+                    type: number
+                    format: float
+                    example: 30.0
+                  current_url:
+                    type: string
+                    example: "https://example.com"
+                  bookmark_statuses:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      properties:
+                        status:
+                          type: string
+                          enum: ["not-scraped", "in-progress", "scraped", "error"]
+                        error:
+                          type: string
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
   # Search Endpoints
   /api/search:
     post:

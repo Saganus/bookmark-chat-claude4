@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -14,12 +16,25 @@ import (
 type Handler struct {
 	importService *services.ImportService
 	storage       *storage.Storage
+	scraper       services.Scraper
+	bulkScraper   *services.BulkScraper
 }
 
 func NewHandler(storage *storage.Storage) *Handler {
+	// Initialize scraper with default config
+	scraperConfig := services.DefaultScraperConfig()
+	scraper, err := services.NewScraper(scraperConfig)
+	if err != nil {
+		// Log error but continue with nil scraper
+		// The scraper will be created on-demand in handlers if needed
+		scraper = nil
+	}
+
 	return &Handler{
 		importService: services.NewImportService(storage),
 		storage:       storage,
+		scraper:       scraper,
+		bulkScraper:   services.NewBulkScraper(scraper, storage),
 	}
 }
 
@@ -218,16 +233,82 @@ func (h *Handler) DeleteBookmark(ctx echo.Context, id api.BookmarkId) error {
 // Re-scrape bookmark content
 // (POST /api/bookmarks/{id}/rescrape)
 func (h *Handler) RescrapeBookmark(ctx echo.Context, id api.BookmarkId) error {
+	// Get bookmark from database
+	bookmark, err := h.storage.GetBookmark(id.String())
+	if err != nil {
+		return ctx.JSON(http.StatusNotFound, api.Error{
+			Error:   "bookmark_not_found",
+			Message: "Bookmark not found",
+		})
+	}
+
+	// Use pre-initialized scraper or create one on-demand
+	scraper := h.scraper
+	if scraper == nil {
+		scraperConfig := services.DefaultScraperConfig()
+		var err error
+		scraper, err = services.NewScraper(scraperConfig)
+		if err != nil {
+			return ctx.JSON(http.StatusInternalServerError, api.Error{
+				Error:   "scraper_error",
+				Message: "Failed to create scraper: " + err.Error(),
+			})
+		}
+	}
+
+	// Scrape the content
+	scrapedContent, err := scraper.Scrape(ctx.Request().Context(), bookmark.URL, services.DefaultScrapeOptions())
+	if err != nil || !scrapedContent.Success {
+		errorMsg := "Failed to scrape content"
+		if scrapedContent != nil && scrapedContent.Error != "" {
+			errorMsg = scrapedContent.Error
+		} else if err != nil {
+			errorMsg = err.Error()
+		}
+		
+		return ctx.JSON(http.StatusInternalServerError, api.Error{
+			Error:   "scraping_failed",
+			Message: errorMsg,
+		})
+	}
+
+	// Update bookmark with scraped data
+	bookmark.Title = scrapedContent.Title
+	bookmark.Description = scrapedContent.Description
+	bookmark.FaviconURL = scrapedContent.FaviconURL
+	bookmark.UpdatedAt = time.Now()
+	now := time.Now()
+	bookmark.ScrapedAt = &now
+
+	err = h.storage.UpdateBookmark(bookmark)
+	if err != nil {
+		return ctx.JSON(http.StatusInternalServerError, api.Error{
+			Error:   "database_error",
+			Message: "Failed to update bookmark: " + err.Error(),
+		})
+	}
+
+	// Store the scraped content
+	err = h.storage.StoreContent(bookmark.ID, scrapedContent.Content, scrapedContent.CleanText)
+	if err != nil {
+		ctx.Logger().Errorf("Failed to store content for bookmark %s: %v", bookmark.ID, err)
+		// Don't fail the request, just log the error
+	}
+
+	// Return updated bookmark
+	bookmarkUUID, _ := uuid.Parse(bookmark.ID)
 	return ctx.JSON(http.StatusOK, api.BookmarkDetail{
-		Id:          id,
-		Url:         "https://example.com",
-		Title:       strPtr("Example Website - Updated"),
-		Description: strPtr("Freshly scraped description"),
-		Content:     strPtr("Newly scraped content. Implementation pending. Here's an example of how a response would look like with updated content."),
-		CreatedAt:   time.Now().Add(-24 * time.Hour),
-		UpdatedAt:   time.Now(),
-		ScrapedAt:   timePtr(time.Now()),
-		Tags:        &[]string{"example", "demo", "rescraped"},
+		Id:          bookmarkUUID,
+		Url:         bookmark.URL,
+		Title:       &bookmark.Title,
+		Description: &bookmark.Description,
+		Content:     &scrapedContent.CleanText,
+		CreatedAt:   bookmark.CreatedAt,
+		UpdatedAt:   bookmark.UpdatedAt,
+		ScrapedAt:   bookmark.ScrapedAt,
+		FolderPath:  &bookmark.FolderPath,
+		FaviconUrl:  &bookmark.FaviconURL,
+		Tags:        &bookmark.Tags,
 	})
 }
 
@@ -397,4 +478,100 @@ func float32Ptr(f float32) *float32 {
 
 func timePtr(t time.Time) *time.Time {
 	return &t
+}
+
+// Bulk Scraping Handlers
+
+// Start bulk scraping process
+// (POST /api/scraping/start)
+func (h *Handler) StartScraping(ctx echo.Context) error {
+	var req struct {
+		BookmarkIds []string `json:"bookmark_ids"`
+	}
+	
+	if err := ctx.Bind(&req); err != nil {
+		return ctx.JSON(http.StatusBadRequest, api.Error{
+			Error:   "bad_request",
+			Message: "Invalid request body",
+		})
+	}
+	
+	if len(req.BookmarkIds) == 0 {
+		return ctx.JSON(http.StatusBadRequest, api.Error{
+			Error:   "bad_request",
+			Message: "No bookmark IDs provided",
+		})
+	}
+	
+	err := h.bulkScraper.Start(context.Background(), req.BookmarkIds)
+	if err != nil {
+		return ctx.JSON(http.StatusInternalServerError, api.Error{
+			Error:   "scraping_failed",
+			Message: err.Error(),
+		})
+	}
+	
+	return ctx.JSON(http.StatusOK, map[string]interface{}{
+		"status":          "started",
+		"message":         fmt.Sprintf("Started scraping %d bookmarks", len(req.BookmarkIds)),
+		"total_bookmarks": len(req.BookmarkIds),
+	})
+}
+
+// Pause scraping process
+// (POST /api/scraping/pause)
+func (h *Handler) PauseScraping(ctx echo.Context) error {
+	err := h.bulkScraper.Pause()
+	if err != nil {
+		return ctx.JSON(http.StatusInternalServerError, api.Error{
+			Error:   "pause_failed",
+			Message: err.Error(),
+		})
+	}
+	
+	return ctx.JSON(http.StatusOK, map[string]interface{}{
+		"status":  "paused",
+		"message": "Scraping paused",
+	})
+}
+
+// Resume scraping process
+// (POST /api/scraping/resume)
+func (h *Handler) ResumeScraping(ctx echo.Context) error {
+	err := h.bulkScraper.Resume()
+	if err != nil {
+		return ctx.JSON(http.StatusInternalServerError, api.Error{
+			Error:   "resume_failed",
+			Message: err.Error(),
+		})
+	}
+	
+	return ctx.JSON(http.StatusOK, map[string]interface{}{
+		"status":  "running",
+		"message": "Scraping resumed",
+	})
+}
+
+// Stop scraping process
+// (POST /api/scraping/stop)
+func (h *Handler) StopScraping(ctx echo.Context) error {
+	err := h.bulkScraper.Stop()
+	if err != nil {
+		return ctx.JSON(http.StatusInternalServerError, api.Error{
+			Error:   "stop_failed",
+			Message: err.Error(),
+		})
+	}
+	
+	return ctx.JSON(http.StatusOK, map[string]interface{}{
+		"status":  "stopped",
+		"message": "Scraping stopped",
+	})
+}
+
+// Get scraping status
+// (GET /api/scraping/status)
+func (h *Handler) GetScrapingStatus(ctx echo.Context) error {
+	status := h.bulkScraper.GetStatus()
+	return ctx.JSON(http.StatusOK, status)
 }

@@ -25,8 +25,8 @@ class BookmarkManager {
         this.container.on('click', '.tree-item-content', (e) => {
             const $target = $(e.target);
             
-            // Don't toggle if clicking on a link
-            if ($target.is('a') || $target.closest('a').length) {
+            // Don't toggle if clicking on a link or scrape button
+            if ($target.is('a, .scrape-bookmark-btn') || $target.closest('a, .scrape-bookmark-btn').length) {
                 return;
             }
 
@@ -34,6 +34,13 @@ class BookmarkManager {
             if ($toggle.length) {
                 this.toggleFolder($toggle);
             }
+        });
+
+        // Handle scrape button clicks
+        this.container.on('click', '.scrape-bookmark-btn', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            await this.scrapeBookmark($(e.target));
         });
 
         // Handle bookmark link clicks
@@ -100,6 +107,9 @@ class BookmarkManager {
             const url = item.url || '#';
             const title = item.title || item.name || 'Untitled Bookmark';
             html += `<span class="tree-text"><a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(title)}</a></span>`;
+            
+            // Add scrape button for bookmarks
+            html += `<button class="btn btn-small scrape-bookmark-btn" data-id="${nodeId}" title="Scrape this bookmark">⟳</button>`;
         }
         
         html += `</div>`;
@@ -141,6 +151,33 @@ class BookmarkManager {
                 <button class="btn btn-primary" onclick="window.bookmarkManager.loadBookmarks()">Retry</button>
             </div>
         `);
+    }
+
+    async scrapeBookmark($button) {
+        const bookmarkId = $button.data('id');
+        
+        try {
+            // Disable the button during scraping
+            $button.prop('disabled', true).addClass('loading').text('⟳');
+            
+            // Call the API to rescrape the bookmark
+            const result = await this.api.rescrapeBookmark(bookmarkId);
+            
+            // Show success message
+            const title = result.title || 'Bookmark';
+            showToast(`Successfully scraped "${title}"`, 'success');
+            
+            // Optionally refresh the bookmark data
+            await this.loadBookmarks();
+            
+        } catch (error) {
+            console.error('Failed to scrape bookmark:', error);
+            showToast(`Failed to scrape bookmark: ${error.message}`, 'error');
+            
+        } finally {
+            // Re-enable the button
+            $button.prop('disabled', false).removeClass('loading').text('⟳');
+        }
     }
 
     // Expand all folders
