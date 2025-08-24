@@ -156,18 +156,30 @@ class APIClient {
     }
 
     /**
-     * Search bookmarks
+     * Search bookmarks using POST method per OpenAPI spec
+     * @param {string} query - Search query
+     * @param {Object} options - Search options (limit, searchType)
+     * @returns {Promise} Search results
+     */
+    async searchBookmarks(query, options = {}) {
+        return await this.request('/search', {
+            method: 'POST',
+            body: JSON.stringify({
+                query: query,
+                limit: options.limit || 20,
+                searchType: options.searchType || 'hybrid'
+            })
+        });
+    }
+
+    /**
+     * Legacy search method (kept for backward compatibility)
      * @param {string} query - Search query
      * @param {Object} options - Search options
      * @returns {Promise} Search results
      */
     async search(query, options = {}) {
-        const params = new URLSearchParams({
-            q: query,
-            ...options,
-        });
-        
-        return await this.request(`/search?${params}`);
+        return this.searchBookmarks(query, options);
     }
 
     /**

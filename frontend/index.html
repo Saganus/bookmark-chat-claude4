@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="css/main.css">
     <link rel="stylesheet" href="css/components/modal.css">
     <link rel="stylesheet" href="css/components/bookmarks.css">
+    <link rel="stylesheet" href="css/components/search.css">
     <link rel="stylesheet" href="css/responsive.css">
 </head>
 <body>
@@ -20,6 +21,7 @@
             <nav class="tab-navigation">
                 <button class="tab-btn active" data-tab="bookmarks">Bookmarks</button>
                 <button class="tab-btn" data-tab="scraping">Scraping</button>
+                <button class="tab-btn" data-tab="search">Search</button>
             </nav>
 
             <!-- Bookmarks Tab Content -->
@@ -63,6 +65,44 @@
                 <div class="scraping-tree-container">
                     <div id="scrapingTree" class="scraping-tree">
                         <p class="empty-state">No bookmarks available for scraping. Please import bookmarks first.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Search Tab Content -->
+            <div id="searchTab" class="tab-content">
+                <div class="search-header">
+                    <div class="search-controls">
+                        <div class="search-input-group">
+                            <input type="text" id="searchQuery" placeholder="Search your bookmarks..." class="search-input">
+                            <button class="btn btn-primary" id="searchBtn">Search</button>
+                        </div>
+                        
+                        <div class="search-options">
+                            <div class="search-type-group">
+                                <label>Search Type:</label>
+                                <select id="searchType" class="search-select">
+                                    <option value="hybrid">Hybrid (Semantic + Keyword)</option>
+                                    <option value="semantic">Semantic Only</option>
+                                    <option value="keyword">Keyword Only</option>
+                                </select>
+                            </div>
+                            
+                            <div class="search-limit-group">
+                                <label>Max Results:</label>
+                                <select id="searchLimit" class="search-select">
+                                    <option value="10">10</option>
+                                    <option value="20" selected>20</option>
+                                    <option value="50">50</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="search-results-container">
+                    <div id="searchResults" class="search-results">
+                        <p class="empty-state">Enter a search query to find relevant bookmarks</p>
                     </div>
                 </div>
             </div>
@@ -119,6 +159,7 @@
     <script src="js/components/import.js"></script>
     <script src="js/components/bookmarks.js"></script>
     <script src="js/components/scraping.js"></script>
+    <script src="js/components/search.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>
