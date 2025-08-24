@@ -1,7 +1,7 @@
 # Frontend System Implementation Prompt
 
 ## Project Overview
-Build a responsive web interface for a bookmark chat system using vanilla JavaScript with jQuery, providing an intuitive chat interface to interact with scraped bookmarks through natural language queries.
+Build a responsive and beautiful web interface for a bookmark chat system using vanilla JavaScript with jQuery, providing an intuitive chat interface to interact with scraped bookmarks through natural language queries.
 
 ## Core Requirements
 

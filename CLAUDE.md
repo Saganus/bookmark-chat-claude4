@@ -26,6 +26,15 @@ go build -o bin/server cmd/server/main.go
 # Run tests
 go test ./...
 
+# Run storage layer tests specifically
+go test ./internal/storage -v
+
+# Run storage benchmarks
+go test ./internal/storage -bench=. -benchmem
+
+# Run storage example
+go run examples/storage_example.go
+
 # Update dependencies
 go mod tidy
 ```
@@ -45,17 +54,19 @@ The backend follows a clean architecture pattern with OpenAPI-first development:
    - Currently contains stub implementations
    - Should coordinate between services
 
-3. **Service Layer** (to be implemented in `internal/services/`)
-   - Bookmark parsing (Firefox JSON, Chrome HTML)
-   - Web scraping for content extraction
-   - Embedding generation via OpenAI
-   - Vector search using libSQL
-   - Chat/RAG implementation
+3. **Service Layer** (`internal/services/`)
+   - Bookmark parsing (Firefox JSON, Chrome HTML) - implemented
+   - Web scraping for content extraction - implemented 
+   - Import service with batch processing - implemented
+   - Embedding generation via OpenAI (integration needed)
+   - Chat/RAG implementation (to be implemented)
 
-4. **Database Layer** (to be implemented)
-   - libSQL with vector extensions
+4. **Storage Layer** (`internal/storage/`)
+   - Complete libSQL implementation with vector extensions
    - SQLite FTS5 for keyword search
-   - Migrations for schema management
+   - Hybrid search combining semantic and keyword search
+   - Batch operations for efficient processing
+   - Comprehensive error handling and transactions
 
 ### API Endpoints
 The system exposes these main endpoint groups:
@@ -69,21 +80,43 @@ The system exposes these main endpoint groups:
 - **OpenAPI + oapi-codegen**: Type-safe API development
 - **libSQL**: SQLite with vector extensions for embeddings
 - **OpenAI API**: Embeddings (text-embedding-3-small) and chat (GPT-4)
+- **goquery**: HTML parsing and content extraction
+- **FTS5**: Full-text search with BM25 ranking
 
 ## Current State
 
-The project is in early development with:
-- OpenAPI specification complete
-- Basic server structure set up
-- Handler stubs generated
-- Frontend and service implementations pending
+The project has a solid foundation with:
+- OpenAPI specification complete with comprehensive endpoint definitions
+- Server structure set up with Echo framework integration
+- Handler stubs generated from OpenAPI spec
+- Storage layer fully implemented with libSQL, vector embeddings, and hybrid search
+- Service layer partially implemented (parsing, scraping, import services)
+- Frontend structure in place but needs integration with backend
+- OpenAI integration needed for embeddings and chat functionality
 
 ## Development Notes
 
 When implementing features:
 1. Start with the OpenAPI spec - it's the source of truth
-2. Regenerate code after spec changes
-3. Implement handlers by adding service layer logic
-4. Use the prompt files as detailed implementation guides
+2. Regenerate code after spec changes using the oapi-codegen command
+3. Implement handlers by coordinating between services and storage layers
+4. Use the prompt files (`backend-prompt.md`, `frontend-prompt.md`) as detailed implementation guides
 5. Follow Go idioms and Echo framework patterns
-6. Do not add "🤖 Generated with [Claude Code](https://claude.ai/code) Co-Authored-By: Claude <noreply@anthropic.com>" when doing git commit
+6. The storage layer is feature-complete - use it for all data persistence
+7. Service layer has parsing and scraping - build upon these for import workflows
+8. Frontend uses vanilla JavaScript with jQuery - no build system required
+9. Do not add "🤖 Generated with [Claude Code](https://claude.ai/code) Co-Authored-By: Claude <noreply@anthropic.com>" when doing git commit
+
+### Storage Layer Usage
+The storage layer (`internal/storage/`) provides:
+- Complete CRUD operations for bookmarks and content
+- Vector embeddings storage with F32_BLOB(1536) for text-embedding-3-small
+- Hybrid search combining semantic similarity and FTS5 keyword search
+- Batch operations for efficient bulk processing
+- See `internal/storage/README.md` for comprehensive usage examples
+
+### Testing Strategy
+- Run `go test ./...` for all tests
+- Storage layer has comprehensive test coverage in `storage_test.go`
+- Use `examples/storage_example.go` to understand storage layer capabilities
+- Test files include specific parsers and scrapers
