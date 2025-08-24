@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"bookmark-chat/internal/services/parsers"
-	_ "github.com/tursodatabase/go-libsql"
 	"github.com/google/uuid"
+	_ "github.com/tursodatabase/go-libsql"
 )
 
 // Storage represents the database storage layer
@@ -19,31 +19,31 @@ type Storage struct {
 
 // Bookmark represents a bookmark entry
 type Bookmark struct {
-	ID          string    `json:"id"`
-	URL         string    `json:"url"`
-	Title       string    `json:"title"`
-	Description string    `json:"description,omitempty"`
-	Status      string    `json:"status"`
-	ImportedAt  time.Time `json:"imported_at"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          string     `json:"id"`
+	URL         string     `json:"url"`
+	Title       string     `json:"title"`
+	Description string     `json:"description,omitempty"`
+	Status      string     `json:"status"`
+	ImportedAt  time.Time  `json:"imported_at"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 	ScrapedAt   *time.Time `json:"scraped_at,omitempty"`
-	FolderID    *string   `json:"folder_id,omitempty"`
-	FolderPath  string    `json:"folder_path,omitempty"`
-	FaviconURL  string    `json:"favicon_url,omitempty"`
-	Tags        []string  `json:"tags,omitempty"`
+	FolderID    *string    `json:"folder_id,omitempty"`
+	FolderPath  string     `json:"folder_path,omitempty"`
+	FaviconURL  string     `json:"favicon_url,omitempty"`
+	Tags        []string   `json:"tags,omitempty"`
 }
 
 // BookmarkFolder represents a folder in the bookmark hierarchy
 type BookmarkFolder struct {
-	ID         string             `json:"id"`
-	Name       string             `json:"name"`
-	ParentID   *string            `json:"parent_id,omitempty"`
-	Path       string             `json:"path"`
-	CreatedAt  time.Time          `json:"created_at"`
-	UpdatedAt  time.Time          `json:"updated_at"`
-	Bookmarks  []*Bookmark        `json:"bookmarks,omitempty"`
-	Subfolders []*BookmarkFolder  `json:"subfolders,omitempty"`
+	ID         string            `json:"id"`
+	Name       string            `json:"name"`
+	ParentID   *string           `json:"parent_id,omitempty"`
+	Path       string            `json:"path"`
+	CreatedAt  time.Time         `json:"created_at"`
+	UpdatedAt  time.Time         `json:"updated_at"`
+	Bookmarks  []*Bookmark       `json:"bookmarks,omitempty"`
+	Subfolders []*BookmarkFolder `json:"subfolders,omitempty"`
 }
 
 // Content represents scraped content from a bookmark
@@ -225,7 +225,7 @@ func (s *Storage) ImportBookmarks(parseResult *parsers.ParseResult) (*ImportResu
 	for _, bookmark := range parseResult.Bookmarks {
 		bookmarkID := uuid.New().String()
 		var folderID *string
-		
+
 		// Find folder ID if bookmark has a folder path
 		if len(bookmark.FolderPath) > 0 {
 			folderPath := strings.Join(bookmark.FolderPath, "/")
@@ -269,7 +269,7 @@ func (s *Storage) ImportBookmarks(parseResult *parsers.ParseResult) (*ImportResu
 		}
 
 		result.SuccessfullyImported++
-		
+
 		// Create bookmark object for result
 		dbBookmark := &Bookmark{
 			ID:         bookmarkID,
@@ -298,27 +298,27 @@ func (s *Storage) ImportBookmarks(parseResult *parsers.ParseResult) (*ImportResu
 func (s *Storage) createFolderHierarchy(tx *sql.Tx, folder *parsers.BookmarkFolder, parentID *string, folderMap map[string]string) error {
 	folderID := uuid.New().String()
 	folderPath := strings.Join(folder.Path, "/")
-	
+
 	// Insert folder
 	_, err := tx.Exec(`
 		INSERT OR IGNORE INTO folders (id, name, parent_id, path)
 		VALUES (?, ?, ?, ?)`,
 		folderID, folder.Name, parentID, folderPath)
-		
+
 	if err != nil {
 		return fmt.Errorf("failed to insert folder: %w", err)
 	}
-	
+
 	// Store in map for bookmark reference
 	folderMap[folderPath] = folderID
-	
+
 	// Recursively create subfolders
 	for _, subfolder := range folder.Subfolders {
 		if err := s.createFolderHierarchy(tx, subfolder, &folderID, folderMap); err != nil {
 			return err
 		}
 	}
-	
+
 	return nil
 }
 
@@ -498,21 +498,21 @@ func (s *Storage) UpdateBookmark(bookmark *Bookmark) error {
 		SET title = ?, description = ?, favicon_url = ?, updated_at = ?, scraped_at = ?
 		WHERE id = ?
 	`
-	result, err := s.db.Exec(query, bookmark.Title, bookmark.Description, bookmark.FaviconURL, 
+	result, err := s.db.Exec(query, bookmark.Title, bookmark.Description, bookmark.FaviconURL,
 		bookmark.UpdatedAt, bookmark.ScrapedAt, bookmark.ID)
 	if err != nil {
 		return fmt.Errorf("failed to update bookmark: %w", err)
 	}
-	
+
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
-	
+
 	if rowsAffected == 0 {
 		return fmt.Errorf("bookmark with ID %s not found", bookmark.ID)
 	}
-	
+
 	return nil
 }
 
@@ -529,11 +529,20 @@ type ImportResult struct {
 
 // StoreContent stores scraped content for a bookmark
 func (s *Storage) StoreContent(bookmarkID string, rawContent string, cleanText string) error {
-	query := `INSERT OR REPLACE INTO content (bookmark_id, raw_content, clean_text) VALUES (?, ?, ?)`
-	_, err := s.db.Exec(query, bookmarkID, rawContent, cleanText)
+	// Delete any existing content for this bookmark
+	_, err := s.db.Exec("DELETE FROM content WHERE bookmark_id = ?", bookmarkID)
+	if err != nil {
+		// Log but don't fail - the content might not exist yet
+	}
+
+	// Insert new content
+	query := `INSERT INTO content (bookmark_id, raw_content, clean_text, scraped_at, content_type) 
+	          VALUES (?, ?, ?, CURRENT_TIMESTAMP, 'text/html')`
+	_, err = s.db.Exec(query, bookmarkID, rawContent, cleanText)
 	if err != nil {
 		return fmt.Errorf("failed to store content: %w", err)
 	}
+
 	return nil
 }
 
