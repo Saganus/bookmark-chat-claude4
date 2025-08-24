@@ -90,6 +90,11 @@ func (s *Storage) Close() error {
 	return s.db.Close()
 }
 
+// GetDB returns the underlying database connection (for testing)
+func (s *Storage) GetDB() *sql.DB {
+	return s.db
+}
+
 // initializeSchema creates all necessary tables and indexes
 func (s *Storage) initializeSchema() error {
 	schemas := []string{
@@ -143,13 +148,15 @@ func (s *Storage) initializeSchema() error {
 			FOREIGN KEY (content_id) REFERENCES content(id) ON DELETE CASCADE
 		)`,
 
-		// FTS5 virtual table for full-text search
+		// FTS5 virtual table for bookmarks full-text search
 		`CREATE VIRTUAL TABLE IF NOT EXISTS bookmarks_fts USING fts5(
 			title, 
-			description, 
-			clean_text,
-			content='content',
-			content_rowid='bookmark_id'
+			description
+		)`,
+
+		// FTS5 virtual table for content full-text search
+		`CREATE VIRTUAL TABLE IF NOT EXISTS content_fts USING fts5(
+			clean_text
 		)`,
 
 		// Create standard indexes for performance
@@ -168,28 +175,8 @@ func (s *Storage) initializeSchema() error {
 		}
 	}
 
-	// Set up triggers to keep FTS in sync
-	triggers := []string{
-		`CREATE TRIGGER IF NOT EXISTS bookmarks_fts_insert AFTER INSERT ON content BEGIN
-			INSERT INTO bookmarks_fts(rowid, title, description, clean_text) 
-			SELECT NEW.bookmark_id, b.title, b.description, NEW.clean_text 
-			FROM bookmarks b WHERE b.id = NEW.bookmark_id;
-		END`,
-
-		`CREATE TRIGGER IF NOT EXISTS bookmarks_fts_update AFTER UPDATE ON content BEGIN
-			UPDATE bookmarks_fts SET clean_text = NEW.clean_text WHERE rowid = NEW.bookmark_id;
-		END`,
-
-		`CREATE TRIGGER IF NOT EXISTS bookmarks_fts_delete AFTER DELETE ON content BEGIN
-			DELETE FROM bookmarks_fts WHERE rowid = OLD.bookmark_id;
-		END`,
-	}
-
-	for _, trigger := range triggers {
-		if _, err := s.db.Exec(trigger); err != nil {
-			return fmt.Errorf("failed to create trigger: %w", err)
-		}
-	}
+	// Note: We'll manually manage FTS table synchronization to avoid trigger conflicts
+	// FTS tables will be updated explicitly when content changes
 
 	return nil
 }
@@ -493,12 +480,19 @@ func (s *Storage) UpdateBookmarkStatus(bookmarkID string, status string) error {
 
 // UpdateBookmark updates a bookmark's metadata
 func (s *Storage) UpdateBookmark(bookmark *Bookmark) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to start transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Update the bookmark
 	query := `
 		UPDATE bookmarks 
 		SET title = ?, description = ?, favicon_url = ?, updated_at = ?, scraped_at = ?
 		WHERE id = ?
 	`
-	result, err := s.db.Exec(query, bookmark.Title, bookmark.Description, bookmark.FaviconURL,
+	result, err := tx.Exec(query, bookmark.Title, bookmark.Description, bookmark.FaviconURL,
 		bookmark.UpdatedAt, bookmark.ScrapedAt, bookmark.ID)
 	if err != nil {
 		return fmt.Errorf("failed to update bookmark: %w", err)
@@ -513,7 +507,21 @@ func (s *Storage) UpdateBookmark(bookmark *Bookmark) error {
 		return fmt.Errorf("bookmark with ID %s not found", bookmark.ID)
 	}
 
-	return nil
+	// Get the bookmark's rowid to update FTS
+	var rowid int64
+	err = tx.QueryRow("SELECT rowid FROM bookmarks WHERE id = ?", bookmark.ID).Scan(&rowid)
+	if err != nil {
+		return fmt.Errorf("failed to get bookmark rowid: %w", err)
+	}
+
+	// Update or insert into FTS table
+	_, err = tx.Exec("INSERT OR REPLACE INTO bookmarks_fts(rowid, title, description) VALUES (?, ?, ?)",
+		rowid, bookmark.Title, bookmark.Description)
+	if err != nil {
+		return fmt.Errorf("failed to update bookmarks FTS: %w", err)
+	}
+
+	return tx.Commit()
 }
 
 // ImportResult represents the result of an import operation
@@ -529,8 +537,14 @@ type ImportResult struct {
 
 // StoreContent stores scraped content for a bookmark
 func (s *Storage) StoreContent(bookmarkID string, rawContent string, cleanText string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to start transaction: %w", err)
+	}
+	defer tx.Rollback()
+
 	// Delete any existing content for this bookmark
-	_, err := s.db.Exec("DELETE FROM content WHERE bookmark_id = ?", bookmarkID)
+	_, err = tx.Exec("DELETE FROM content WHERE bookmark_id = ?", bookmarkID)
 	if err != nil {
 		// Log but don't fail - the content might not exist yet
 	}
@@ -538,12 +552,24 @@ func (s *Storage) StoreContent(bookmarkID string, rawContent string, cleanText s
 	// Insert new content
 	query := `INSERT INTO content (bookmark_id, raw_content, clean_text, scraped_at, content_type) 
 	          VALUES (?, ?, ?, CURRENT_TIMESTAMP, 'text/html')`
-	_, err = s.db.Exec(query, bookmarkID, rawContent, cleanText)
+	result, err := tx.Exec(query, bookmarkID, rawContent, cleanText)
 	if err != nil {
 		return fmt.Errorf("failed to store content: %w", err)
 	}
 
-	return nil
+	// Get the content ID for FTS update
+	contentID, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get content ID: %w", err)
+	}
+
+	// Update content FTS table
+	_, err = tx.Exec("INSERT INTO content_fts(rowid, clean_text) VALUES (?, ?)", contentID, cleanText)
+	if err != nil {
+		return fmt.Errorf("failed to update content FTS: %w", err)
+	}
+
+	return tx.Commit()
 }
 
 // GetContent retrieves content by bookmark ID
@@ -571,18 +597,40 @@ func (s *Storage) GetContent(bookmarkID string) (*Content, error) {
 
 // StoreEmbedding stores a vector embedding for content
 func (s *Storage) StoreEmbedding(contentID int, embedding []float32) error {
+	fmt.Printf("[StoreEmbedding] Starting with contentID=%d, embedding length=%d\n", contentID, len(embedding))
+
 	// Convert float32 slice to JSON format for vector32() function
 	embeddingJSON, err := json.Marshal(embedding)
 	if err != nil {
 		return fmt.Errorf("failed to marshal embedding: %w", err)
 	}
 
+	fmt.Printf("[StoreEmbedding] JSON marshaled, length=%d bytes\n", len(embeddingJSON))
+	fmt.Printf("[StoreEmbedding] JSON preview: %s...\n", string(embeddingJSON[:min(100, len(embeddingJSON))]))
+
 	query := `INSERT OR REPLACE INTO embeddings (content_id, embedding) VALUES (?, vector32(?))`
-	_, err = s.db.Exec(query, contentID, string(embeddingJSON))
+	fmt.Printf("[StoreEmbedding] Executing query: %s\n", query)
+	fmt.Printf("[StoreEmbedding] Parameters: contentID=%d, embeddingJSON length=%d\n", contentID, len(embeddingJSON))
+
+	result, err := s.db.Exec(query, contentID, string(embeddingJSON))
 	if err != nil {
+		fmt.Printf("[StoreEmbedding] ❌ Query execution failed: %v\n", err)
 		return fmt.Errorf("failed to store embedding: %w", err)
 	}
+
+	rowsAffected, _ := result.RowsAffected()
+	lastInsertID, _ := result.LastInsertId()
+	fmt.Printf("[StoreEmbedding] ✓ Query successful: rows affected=%d, last insert ID=%d\n", rowsAffected, lastInsertID)
+
 	return nil
+}
+
+// Helper function for min
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // GetEmbedding retrieves a vector embedding by content ID
@@ -672,24 +720,29 @@ func (s *Storage) HybridSearch(queryEmbedding []float32, queryText string) ([]*S
 	return allResults, nil
 }
 
-// semanticSearch performs vector similarity search
+// semanticSearch performs vector similarity search using libSQL vector functions
 func (s *Storage) semanticSearch(queryEmbedding []float32, limit int) ([]*SearchResult, error) {
-	// Fallback semantic search without vector index (for compatibility)
-	// Note: This is a simplified version that doesn't do actual vector similarity
+	// Convert query embedding to JSON for vector32() function
+	queryEmbeddingJSON, err := json.Marshal(queryEmbedding)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal query embedding: %w", err)
+	}
+
 	query := `
 		SELECT b.id, b.url, b.title, b.status, b.imported_at, b.created_at, b.updated_at,
 		       COALESCE(b.folder_path, ''), COALESCE(b.description, ''),
 		       c.id, c.bookmark_id, COALESCE(c.raw_content, ''), COALESCE(c.clean_text, ''),
 		       c.scraped_at, c.content_type,
-		       0.5 as similarity
+		       vector_distance_cos(e.embedding, vector32(?)) as similarity
 		FROM embeddings e
 		JOIN content c ON c.id = e.content_id
 		JOIN bookmarks b ON b.id = c.bookmark_id
-		ORDER BY e.id DESC
+		WHERE vector_distance_cos(e.embedding, vector32(?)) < 1.0
+		ORDER BY similarity ASC
 		LIMIT ?
 	`
 
-	rows, err := s.db.Query(query, limit)
+	rows, err := s.db.Query(query, string(queryEmbeddingJSON), string(queryEmbeddingJSON), limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute semantic search: %w", err)
 	}
@@ -713,10 +766,13 @@ func (s *Storage) semanticSearch(queryEmbedding []float32, limit int) ([]*Search
 			return nil, fmt.Errorf("failed to scan semantic search result: %w", err)
 		}
 
+		// Convert cosine distance to similarity score (1 - distance)
+		similarityScore := 1.0 - similarity
+
 		result := &SearchResult{
 			Bookmark:       bookmark,
 			Content:        content,
-			RelevanceScore: similarity,
+			RelevanceScore: similarityScore,
 			SearchType:     "semantic",
 		}
 
@@ -726,28 +782,49 @@ func (s *Storage) semanticSearch(queryEmbedding []float32, limit int) ([]*Search
 	return results, nil
 }
 
+// KeywordSearch performs only keyword-based search (public method)
+func (s *Storage) KeywordSearch(queryText string, limit int) ([]*SearchResult, error) {
+	return s.keywordSearch(queryText, limit)
+}
+
 // keywordSearch performs BM25-based full-text search
 func (s *Storage) keywordSearch(queryText string, limit int) ([]*SearchResult, error) {
 	// Escape FTS5 special characters and prepare query
 	escapedQuery := strings.ReplaceAll(queryText, "'", "''")
-	ftsQuery := fmt.Sprintf("'%s'", escapedQuery)
+	// Don't add quotes here - they'll be added by the SQL query
+	ftsQuery := escapedQuery
 
+	// Use UNION to combine bookmark title/description matches with content matches
 	query := `
 		SELECT b.id, b.url, b.title, b.status, b.imported_at, b.created_at, b.updated_at,
 		       COALESCE(b.folder_path, ''), COALESCE(b.description, ''),
-		       c.id, c.bookmark_id, COALESCE(c.raw_content, ''), COALESCE(c.clean_text, ''),
-		       c.scraped_at, c.content_type,
+		       COALESCE(c.id, 0), COALESCE(c.bookmark_id, ''), COALESCE(c.raw_content, ''), COALESCE(c.clean_text, ''),
+		       COALESCE(c.scraped_at, b.created_at), COALESCE(c.content_type, 'text/html'),
 		       bm25(bookmarks_fts) as relevance,
-		       snippet(bookmarks_fts, 2, '<mark>', '</mark>', '...', 32) as snippet
+		       '' as snippet
 		FROM bookmarks_fts
-		JOIN content c ON c.bookmark_id = bookmarks_fts.rowid
-		JOIN bookmarks b ON b.id = c.bookmark_id
+		JOIN bookmarks b ON b.rowid = bookmarks_fts.rowid
+		LEFT JOIN content c ON c.bookmark_id = b.id
 		WHERE bookmarks_fts MATCH ?
+		
+		UNION
+		
+		SELECT b.id, b.url, b.title, b.status, b.imported_at, b.created_at, b.updated_at,
+		       COALESCE(b.folder_path, ''), COALESCE(b.description, ''),
+		       c.id, c.bookmark_id, c.raw_content, c.clean_text,
+		       c.scraped_at, c.content_type,
+		       bm25(content_fts) as relevance,
+		       snippet(content_fts, 0, '<mark>', '</mark>', '...', 32) as snippet
+		FROM content_fts
+		JOIN content c ON c.id = content_fts.rowid
+		JOIN bookmarks b ON b.id = c.bookmark_id
+		WHERE content_fts MATCH ?
+		
 		ORDER BY relevance
 		LIMIT ?
 	`
 
-	rows, err := s.db.Query(query, ftsQuery, limit)
+	rows, err := s.db.Query(query, ftsQuery, ftsQuery, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute keyword search: %w", err)
 	}
@@ -772,8 +849,8 @@ func (s *Storage) keywordSearch(queryText string, limit int) ([]*SearchResult, e
 			return nil, fmt.Errorf("failed to scan keyword search result: %w", err)
 		}
 
-		// Convert BM25 score to similarity (higher is better)
-		similarity := 1.0 / (1.0 + (-relevance))
+		// Convert BM25 score to similarity (higher is better for BM25)
+		similarity := relevance
 
 		result := &SearchResult{
 			Bookmark:       bookmark,
