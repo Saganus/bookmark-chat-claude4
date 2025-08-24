@@ -63,17 +63,19 @@ func (cp *ContentProcessor) ProcessBookmarkContent(bookmarkID string) error {
 		return fmt.Errorf("failed to get stored content: %w", err)
 	}
 
-	// Generate embedding for the clean text
-	embedding, err := cp.embeddingService.GenerateEmbedding(content.CleanText)
+	// Generate embeddings with chunking for the clean text
+	embeddings, chunks, err := cp.embeddingService.GenerateEmbeddingWithChunking(content.CleanText)
 	if err != nil {
-		log.Printf("Failed to generate embedding for %s: %v", bookmark.URL, err)
+		log.Printf("Failed to generate embeddings for %s: %v", bookmark.URL, err)
 		return fmt.Errorf("failed to generate embedding: %w", err)
 	}
 
-	// Store the embedding
-	err = cp.storage.StoreEmbedding(content.ID, embedding)
+	log.Printf("Generated %d chunks for %s", len(chunks), bookmark.URL)
+
+	// Store the embeddings for all chunks
+	err = cp.storage.StoreMultipleChunkEmbeddings(content.ID, embeddings, chunks)
 	if err != nil {
-		return fmt.Errorf("failed to store embedding: %w", err)
+		return fmt.Errorf("failed to store embeddings: %w", err)
 	}
 
 	// Update bookmark status to completed

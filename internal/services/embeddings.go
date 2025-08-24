@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/sashabaranov/go-openai"
 )
@@ -88,4 +90,144 @@ func (es *EmbeddingService) GenerateBatchEmbeddings(texts []string) ([][]float32
 func (es *EmbeddingService) GetModelInfo() (string, int) {
 	// text-embedding-3-small has 1536 dimensions
 	return es.model, 1536
+}
+
+// estimateTokenCount provides a rough estimate of token count for text
+// OpenAI's rule of thumb: ~4 characters per token for English text
+func (es *EmbeddingService) estimateTokenCount(text string) int {
+	return utf8.RuneCountInString(text) / 4
+}
+
+// ChunkText splits text into chunks using recursive character splitting
+// This is optimized for web content with HTML-aware separators
+func (es *EmbeddingService) ChunkText(text string, maxTokens int) []string {
+	if text == "" {
+		return []string{}
+	}
+
+	// If text is already small enough, return as-is
+	if es.estimateTokenCount(text) <= maxTokens {
+		return []string{text}
+	}
+
+	// HTML-aware separators in order of preference
+	separators := []string{
+		"\n\n", // Paragraph breaks
+		"\n",   // Line breaks
+		". ",   // Sentence endings
+		"! ",   // Exclamation endings
+		"? ",   // Question endings
+		"; ",   // Semicolon breaks
+		", ",   // Comma breaks
+		" ",    // Word breaks
+		"",     // Character breaks (last resort)
+	}
+
+	return es.recursiveSplit(text, separators, maxTokens)
+}
+
+// recursiveSplit implements the recursive character splitting algorithm
+func (es *EmbeddingService) recursiveSplit(text string, separators []string, maxTokens int) []string {
+	// Base case: if text is small enough, return it
+	if es.estimateTokenCount(text) <= maxTokens {
+		return []string{strings.TrimSpace(text)}
+	}
+
+	// Try each separator in order
+	for _, separator := range separators {
+		if separator == "" {
+			// Last resort: split by character count
+			return es.splitByCharacterCount(text, maxTokens)
+		}
+
+		if strings.Contains(text, separator) {
+			parts := strings.Split(text, separator)
+			return es.mergeParts(parts, separator, separators, maxTokens)
+		}
+	}
+
+	// Should never reach here, but handle gracefully
+	return es.splitByCharacterCount(text, maxTokens)
+}
+
+// mergeParts combines split parts while respecting token limits
+func (es *EmbeddingService) mergeParts(parts []string, separator string, separators []string, maxTokens int) []string {
+	var result []string
+	var currentChunk string
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		// Try to add this part to current chunk
+		testChunk := currentChunk
+		if testChunk != "" {
+			testChunk += separator
+		}
+		testChunk += part
+
+		if es.estimateTokenCount(testChunk) <= maxTokens {
+			// Part fits, add it to current chunk
+			currentChunk = testChunk
+		} else {
+			// Part doesn't fit
+			if currentChunk != "" {
+				// Save current chunk and start new one
+				result = append(result, strings.TrimSpace(currentChunk))
+				currentChunk = part
+			} else {
+				// Even single part is too big, split it recursively
+				subChunks := es.recursiveSplit(part, separators, maxTokens)
+				result = append(result, subChunks...)
+				currentChunk = ""
+			}
+		}
+	}
+
+	// Don't forget the last chunk
+	if currentChunk != "" {
+		result = append(result, strings.TrimSpace(currentChunk))
+	}
+
+	return result
+}
+
+// splitByCharacterCount splits text by approximate character count
+func (es *EmbeddingService) splitByCharacterCount(text string, maxTokens int) []string {
+	// Estimate max characters based on token limit
+	maxChars := maxTokens * 4 // 4 chars per token estimate
+
+	var chunks []string
+	runes := []rune(text)
+
+	for i := 0; i < len(runes); i += maxChars {
+		end := i + maxChars
+		if end > len(runes) {
+			end = len(runes)
+		}
+		chunk := string(runes[i:end])
+		chunks = append(chunks, strings.TrimSpace(chunk))
+	}
+
+	return chunks
+}
+
+// GenerateEmbeddingWithChunking generates embeddings for text, chunking if necessary
+func (es *EmbeddingService) GenerateEmbeddingWithChunking(text string) ([][]float32, []string, error) {
+	// Split text into chunks
+	chunks := es.ChunkText(text, 6000) // Conservative limit under 8192
+
+	if len(chunks) == 0 {
+		return nil, nil, fmt.Errorf("no chunks generated from text")
+	}
+
+	// Generate embeddings for all chunks
+	embeddings, err := es.GenerateBatchEmbeddings(chunks)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to generate chunk embeddings: %w", err)
+	}
+
+	return embeddings, chunks, nil
 }

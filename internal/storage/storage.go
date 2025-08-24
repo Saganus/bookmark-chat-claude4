@@ -142,6 +142,8 @@ func (s *Storage) initializeSchema() error {
 		`CREATE TABLE IF NOT EXISTS embeddings (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			content_id INTEGER NOT NULL,
+			chunk_index INTEGER DEFAULT 0,
+			chunk_text TEXT,
 			embedding BLOB,
 			model_version TEXT DEFAULT 'text-embedding-3-small',
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -167,6 +169,7 @@ func (s *Storage) initializeSchema() error {
 		`CREATE INDEX IF NOT EXISTS idx_bookmarks_folder_id ON bookmarks(folder_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_content_bookmark_id ON content(bookmark_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_embeddings_content_id ON embeddings(content_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_embeddings_content_chunk ON embeddings(content_id, chunk_index)`,
 	}
 
 	for _, schema := range schemas {
@@ -595,9 +598,14 @@ func (s *Storage) GetContent(bookmarkID string) (*Content, error) {
 	return content, nil
 }
 
-// StoreEmbedding stores a vector embedding for content
+// StoreEmbedding stores a vector embedding for content (single chunk, index 0)
 func (s *Storage) StoreEmbedding(contentID int, embedding []float32) error {
-	fmt.Printf("[StoreEmbedding] Starting with contentID=%d, embedding length=%d\n", contentID, len(embedding))
+	return s.StoreChunkEmbedding(contentID, 0, embedding, "")
+}
+
+// StoreChunkEmbedding stores a vector embedding for a specific chunk of content
+func (s *Storage) StoreChunkEmbedding(contentID int, chunkIndex int, embedding []float32, chunkText string) error {
+	fmt.Printf("[StoreChunkEmbedding] Starting with contentID=%d, chunkIndex=%d, embedding length=%d\n", contentID, chunkIndex, len(embedding))
 
 	// Convert float32 slice to JSON format for vector32() function
 	embeddingJSON, err := json.Marshal(embedding)
@@ -605,23 +613,61 @@ func (s *Storage) StoreEmbedding(contentID int, embedding []float32) error {
 		return fmt.Errorf("failed to marshal embedding: %w", err)
 	}
 
-	fmt.Printf("[StoreEmbedding] JSON marshaled, length=%d bytes\n", len(embeddingJSON))
-	fmt.Printf("[StoreEmbedding] JSON preview: %s...\n", string(embeddingJSON[:min(100, len(embeddingJSON))]))
+	fmt.Printf("[StoreChunkEmbedding] JSON marshaled, length=%d bytes\n", len(embeddingJSON))
 
-	query := `INSERT OR REPLACE INTO embeddings (content_id, embedding) VALUES (?, vector32(?))`
-	fmt.Printf("[StoreEmbedding] Executing query: %s\n", query)
-	fmt.Printf("[StoreEmbedding] Parameters: contentID=%d, embeddingJSON length=%d\n", contentID, len(embeddingJSON))
+	query := `INSERT OR REPLACE INTO embeddings (content_id, chunk_index, chunk_text, embedding) VALUES (?, ?, ?, vector32(?))`
+	fmt.Printf("[StoreChunkEmbedding] Executing query for chunk %d\n", chunkIndex)
 
-	result, err := s.db.Exec(query, contentID, string(embeddingJSON))
+	result, err := s.db.Exec(query, contentID, chunkIndex, chunkText, string(embeddingJSON))
 	if err != nil {
-		fmt.Printf("[StoreEmbedding] ❌ Query execution failed: %v\n", err)
-		return fmt.Errorf("failed to store embedding: %w", err)
+		fmt.Printf("[StoreChunkEmbedding] ❌ Query execution failed: %v\n", err)
+		return fmt.Errorf("failed to store chunk embedding: %w", err)
 	}
 
 	rowsAffected, _ := result.RowsAffected()
 	lastInsertID, _ := result.LastInsertId()
-	fmt.Printf("[StoreEmbedding] ✓ Query successful: rows affected=%d, last insert ID=%d\n", rowsAffected, lastInsertID)
+	fmt.Printf("[StoreChunkEmbedding] ✓ Query successful: rows affected=%d, last insert ID=%d\n", rowsAffected, lastInsertID)
 
+	return nil
+}
+
+// StoreMultipleChunkEmbeddings stores embeddings for multiple chunks in a transaction
+func (s *Storage) StoreMultipleChunkEmbeddings(contentID int, embeddings [][]float32, chunks []string) error {
+	if len(embeddings) != len(chunks) {
+		return fmt.Errorf("embeddings count (%d) does not match chunks count (%d)", len(embeddings), len(chunks))
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to start transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Clear existing embeddings for this content
+	_, err = tx.Exec(`DELETE FROM embeddings WHERE content_id = ?`, contentID)
+	if err != nil {
+		return fmt.Errorf("failed to clear existing embeddings: %w", err)
+	}
+
+	// Insert new chunk embeddings
+	query := `INSERT INTO embeddings (content_id, chunk_index, chunk_text, embedding) VALUES (?, ?, ?, vector32(?))`
+	for i, embedding := range embeddings {
+		embeddingJSON, err := json.Marshal(embedding)
+		if err != nil {
+			return fmt.Errorf("failed to marshal embedding for chunk %d: %w", i, err)
+		}
+
+		_, err = tx.Exec(query, contentID, i, chunks[i], string(embeddingJSON))
+		if err != nil {
+			return fmt.Errorf("failed to store embedding for chunk %d: %w", i, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit chunk embeddings transaction: %w", err)
+	}
+
+	fmt.Printf("[StoreMultipleChunkEmbeddings] ✓ Stored %d chunk embeddings for content %d\n", len(embeddings), contentID)
 	return nil
 }
 
