@@ -14,10 +14,11 @@ import (
 )
 
 type Handler struct {
-	importService *services.ImportService
-	storage       *storage.Storage
-	scraper       services.Scraper
-	bulkScraper   *services.BulkScraper
+	importService    *services.ImportService
+	contentProcessor *services.ContentProcessor
+	storage          *storage.Storage
+	scraper          services.Scraper
+	bulkScraper      *services.BulkScraper
 }
 
 func NewHandler(storage *storage.Storage) *Handler {
@@ -30,11 +31,21 @@ func NewHandler(storage *storage.Storage) *Handler {
 		scraper = nil
 	}
 
+	// Initialize content processor for embedding generation
+	contentProcessor, err := services.NewContentProcessor(storage)
+	if err != nil {
+		fmt.Printf("⚠️  Failed to create ContentProcessor (embeddings disabled): %v\n", err)
+		contentProcessor = nil
+	} else {
+		fmt.Printf("✅ ContentProcessor initialized successfully (embeddings enabled)\n")
+	}
+
 	return &Handler{
-		importService: services.NewImportService(storage),
-		storage:       storage,
-		scraper:       scraper,
-		bulkScraper:   services.NewBulkScraper(scraper, storage),
+		importService:    services.NewImportService(storage),
+		contentProcessor: contentProcessor,
+		storage:          storage,
+		scraper:          scraper,
+		bulkScraper:      services.NewBulkScraper(scraper, storage),
 	}
 }
 
@@ -102,9 +113,16 @@ func (h *Handler) ImportBookmarks(ctx echo.Context) error {
 		response.Errors = &errors
 	}
 
-	// Log the parsed structure for debugging
-	ctx.Logger().Infof("Import completed: %s format, %d bookmarks, %d folders",
-		parseResult.Source, parseResult.TotalCount, len(parseResult.Folders))
+	// Log the import results
+	ctx.Logger().Infof("📁 Import completed: %s format", parseResult.Source)
+	ctx.Logger().Infof("   📊 Statistics: %d total, %d imported, %d failed, %d duplicates",
+		importResult.Statistics.TotalFound, importResult.Statistics.SuccessfullyImported,
+		importResult.Statistics.Failed, importResult.Statistics.Duplicates)
+	ctx.Logger().Infof("   📂 Folders: %d", len(parseResult.Folders))
+
+	if importResult.Statistics.SuccessfullyImported > 0 {
+		ctx.Logger().Infof("⚠️  Note: Imported bookmarks are in 'pending' status - use scraping API to generate embeddings")
+	}
 
 	return ctx.JSON(http.StatusOK, response)
 }
@@ -265,7 +283,7 @@ func (h *Handler) RescrapeBookmark(ctx echo.Context, id api.BookmarkId) error {
 		} else if err != nil {
 			errorMsg = err.Error()
 		}
-		
+
 		return ctx.JSON(http.StatusInternalServerError, api.Error{
 			Error:   "scraping_failed",
 			Message: errorMsg,
@@ -293,6 +311,35 @@ func (h *Handler) RescrapeBookmark(ctx echo.Context, id api.BookmarkId) error {
 	if err != nil {
 		ctx.Logger().Errorf("Failed to store content for bookmark %s: %v", bookmark.ID, err)
 		// Don't fail the request, just log the error
+	} else {
+		ctx.Logger().Infof("✅ Stored content for bookmark %s: %s", bookmark.ID, bookmark.URL)
+
+		// Generate embeddings if ContentProcessor is available
+		if h.contentProcessor != nil {
+			ctx.Logger().Infof("🔄 Generating embeddings for bookmark %s...", bookmark.ID)
+
+			// Get the stored content to get the content ID
+			content, err := h.storage.GetContent(bookmark.ID)
+			if err != nil {
+				ctx.Logger().Errorf("❌ Failed to get content for embedding: %v", err)
+			} else {
+				// Generate embedding for the clean text
+				embedding, err := h.contentProcessor.GenerateQueryEmbedding(content.CleanText)
+				if err != nil {
+					ctx.Logger().Errorf("❌ Failed to generate embedding: %v", err)
+				} else {
+					// Store the embedding
+					err = h.storage.StoreEmbedding(content.ID, embedding)
+					if err != nil {
+						ctx.Logger().Errorf("❌ Failed to store embedding: %v", err)
+					} else {
+						ctx.Logger().Infof("✅ Generated and stored embedding for bookmark %s", bookmark.ID)
+					}
+				}
+			}
+		} else {
+			ctx.Logger().Warnf("⚠️  ContentProcessor not available - embeddings not generated for %s", bookmark.ID)
+		}
 	}
 
 	// Return updated bookmark
@@ -323,22 +370,83 @@ func (h *Handler) SearchBookmarks(ctx echo.Context) error {
 		})
 	}
 
-	return ctx.JSON(http.StatusOK, api.SearchResponse{
-		Results: []api.SearchResult{
-			{
-				Bookmark: api.Bookmark{
-					Id:          uuid.New(),
-					Url:         "https://example.com",
-					Title:       strPtr("Example Website"),
-					Description: strPtr("Search result matching query: " + req.Query),
-					CreatedAt:   time.Now().Add(-24 * time.Hour),
-					UpdatedAt:   time.Now().Add(-24 * time.Hour),
-				},
-				RelevanceScore: 0.95,
-				Snippet:        strPtr("...highlighted snippet containing search terms..."),
+	ctx.Logger().Infof("🔍 Search request for query: '%s'", req.Query)
+
+	var results []*storage.SearchResult
+	var err error
+
+	// Try hybrid search if ContentProcessor is available
+	if h.contentProcessor != nil {
+		ctx.Logger().Infof("🔄 Using hybrid search (semantic + keyword) for: '%s'", req.Query)
+		results, err = h.contentProcessor.HybridSearch(req.Query)
+		if err != nil {
+			ctx.Logger().Errorf("❌ Hybrid search failed, falling back to keyword search: %v", err)
+			// Fall back to keyword search
+			results, err = h.storage.KeywordSearch(req.Query, 20)
+			if err != nil {
+				ctx.Logger().Errorf("❌ Keyword search also failed: %v", err)
+				return ctx.JSON(http.StatusInternalServerError, api.Error{
+					Error:   "search_failed",
+					Message: "Both hybrid and keyword search failed: " + err.Error(),
+				})
+			}
+			ctx.Logger().Infof("✅ Fallback keyword search found %d results", len(results))
+		} else {
+			ctx.Logger().Infof("✅ Hybrid search found %d results", len(results))
+		}
+	} else {
+		// ContentProcessor not available, use keyword search only
+		ctx.Logger().Infof("🔄 Using keyword-only search for: '%s'", req.Query)
+		results, err = h.storage.KeywordSearch(req.Query, 20)
+		if err != nil {
+			ctx.Logger().Errorf("❌ Keyword search failed: %v", err)
+			return ctx.JSON(http.StatusInternalServerError, api.Error{
+				Error:   "search_failed",
+				Message: "Keyword search failed: " + err.Error(),
+			})
+		}
+		ctx.Logger().Infof("✅ Keyword search found %d results", len(results))
+	}
+
+	// Convert storage results to API format
+	apiResults := make([]api.SearchResult, len(results))
+	for i, result := range results {
+		// Convert string ID to UUID
+		bookmarkUUID, err := uuid.Parse(result.Bookmark.ID)
+		if err != nil {
+			ctx.Logger().Errorf("Invalid bookmark UUID in search result: %s", result.Bookmark.ID)
+			continue
+		}
+
+		apiResult := api.SearchResult{
+			Bookmark: api.Bookmark{
+				Id:          bookmarkUUID,
+				Url:         result.Bookmark.URL,
+				Title:       &result.Bookmark.Title,
+				Description: &result.Bookmark.Description,
+				FolderPath:  &result.Bookmark.FolderPath,
+				FaviconUrl:  &result.Bookmark.FaviconURL,
+				Tags:        &result.Bookmark.Tags,
+				CreatedAt:   result.Bookmark.CreatedAt,
+				UpdatedAt:   result.Bookmark.UpdatedAt,
+				ScrapedAt:   result.Bookmark.ScrapedAt,
 			},
-		},
-		TotalResults: 1,
+			RelevanceScore: float32(result.RelevanceScore),
+		}
+
+		// Add snippet if available
+		if result.MatchedSnippet != "" {
+			apiResult.Snippet = &result.MatchedSnippet
+		}
+
+		apiResults[i] = apiResult
+	}
+
+	ctx.Logger().Infof("✅ Returning %d search results for query: '%s'", len(apiResults), req.Query)
+
+	return ctx.JSON(http.StatusOK, api.SearchResponse{
+		Results:      apiResults,
+		TotalResults: len(apiResults),
 	})
 }
 
@@ -443,19 +551,63 @@ func (h *Handler) HealthCheck(ctx echo.Context) error {
 // System statistics
 // (GET /api/stats)
 func (h *Handler) GetSystemStats(ctx echo.Context) error {
+	ctx.Logger().Infof("📊 Retrieving system statistics...")
+
+	// Get actual bookmark count
+	bookmarks, err := h.storage.ListBookmarks()
+	if err != nil {
+		ctx.Logger().Errorf("❌ Failed to get bookmarks for stats: %v", err)
+		return ctx.JSON(http.StatusInternalServerError, api.Error{
+			Error:   "database_error",
+			Message: "Failed to retrieve system statistics",
+		})
+	}
+
+	bookmarkCount := len(bookmarks)
+
+	// Count pending and completed bookmarks
+	pendingCount := 0
+	completedCount := 0
+	for _, bookmark := range bookmarks {
+		if bookmark.Status == "pending" {
+			pendingCount++
+		} else if bookmark.Status == "completed" {
+			completedCount++
+		}
+	}
+
+	// Get embedding count from database
+	var embeddingCount int
+	err = h.storage.GetDB().QueryRow("SELECT COUNT(*) FROM embeddings").Scan(&embeddingCount)
+	if err != nil {
+		ctx.Logger().Errorf("❌ Failed to count embeddings: %v", err)
+		embeddingCount = 0
+	}
+
+	// Get content count
+	var contentCount int
+	err = h.storage.GetDB().QueryRow("SELECT COUNT(*) FROM content").Scan(&contentCount)
+	if err != nil {
+		ctx.Logger().Errorf("❌ Failed to count content: %v", err)
+		contentCount = 0
+	}
+
+	ctx.Logger().Infof("📊 Stats: %d bookmarks (%d pending, %d completed), %d content, %d embeddings",
+		bookmarkCount, pendingCount, completedCount, contentCount, embeddingCount)
+
 	return ctx.JSON(http.StatusOK, api.StatsResponse{
-		BookmarkCount:     42,
-		ConversationCount: 7,
+		BookmarkCount:     bookmarkCount,
+		ConversationCount: 0, // Not implemented yet
 		IndexStatus: struct {
 			EmbeddingsGenerated *int       `json:"embeddings_generated,omitempty"`
 			EmbeddingsPending   *int       `json:"embeddings_pending,omitempty"`
 			LastIndexed         *time.Time `json:"last_indexed,omitempty"`
 		}{
-			EmbeddingsGenerated: intPtr(40),
-			EmbeddingsPending:   intPtr(2),
-			LastIndexed:         timePtr(time.Now().Add(-30 * time.Minute)),
+			EmbeddingsGenerated: &embeddingCount,
+			EmbeddingsPending:   &pendingCount,
+			LastIndexed:         timePtr(time.Now()),
 		},
-		StorageSizeMb: float32Ptr(125.5),
+		StorageSizeMb: float32Ptr(0.0), // Could calculate actual DB size if needed
 	})
 }
 
@@ -488,21 +640,21 @@ func (h *Handler) StartScraping(ctx echo.Context) error {
 	var req struct {
 		BookmarkIds []string `json:"bookmark_ids"`
 	}
-	
+
 	if err := ctx.Bind(&req); err != nil {
 		return ctx.JSON(http.StatusBadRequest, api.Error{
 			Error:   "bad_request",
 			Message: "Invalid request body",
 		})
 	}
-	
+
 	if len(req.BookmarkIds) == 0 {
 		return ctx.JSON(http.StatusBadRequest, api.Error{
 			Error:   "bad_request",
 			Message: "No bookmark IDs provided",
 		})
 	}
-	
+
 	err := h.bulkScraper.Start(context.Background(), req.BookmarkIds)
 	if err != nil {
 		return ctx.JSON(http.StatusInternalServerError, api.Error{
@@ -510,7 +662,7 @@ func (h *Handler) StartScraping(ctx echo.Context) error {
 			Message: err.Error(),
 		})
 	}
-	
+
 	return ctx.JSON(http.StatusOK, map[string]interface{}{
 		"status":          "started",
 		"message":         fmt.Sprintf("Started scraping %d bookmarks", len(req.BookmarkIds)),
@@ -528,7 +680,7 @@ func (h *Handler) PauseScraping(ctx echo.Context) error {
 			Message: err.Error(),
 		})
 	}
-	
+
 	return ctx.JSON(http.StatusOK, map[string]interface{}{
 		"status":  "paused",
 		"message": "Scraping paused",
@@ -545,7 +697,7 @@ func (h *Handler) ResumeScraping(ctx echo.Context) error {
 			Message: err.Error(),
 		})
 	}
-	
+
 	return ctx.JSON(http.StatusOK, map[string]interface{}{
 		"status":  "running",
 		"message": "Scraping resumed",
@@ -562,7 +714,7 @@ func (h *Handler) StopScraping(ctx echo.Context) error {
 			Message: err.Error(),
 		})
 	}
-	
+
 	return ctx.JSON(http.StatusOK, map[string]interface{}{
 		"status":  "stopped",
 		"message": "Scraping stopped",

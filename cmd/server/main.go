@@ -2,12 +2,15 @@ package main
 
 import (
 	"log"
+	"os"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 
 	api "bookmark-chat/api/generated"
 	"bookmark-chat/internal/handlers"
+	"bookmark-chat/internal/services"
 	"bookmark-chat/internal/storage"
 )
 
@@ -27,6 +30,15 @@ func main() {
 
 	// Create handler instance with storage
 	handler := handlers.NewHandler(store)
+
+	// Start background processing for pending bookmarks (if OpenAI key is available)
+	if os.Getenv("OPENAI_API_KEY") != "" {
+		log.Println("🤖 OpenAI API key found - starting background embedding processor...")
+		startBackgroundProcessor(store)
+	} else {
+		log.Println("⚠️  No OpenAI API key found - background embedding processing disabled")
+		log.Println("   Set OPENAI_API_KEY environment variable to enable embeddings")
+	}
 
 	// Register all generated handlers
 	api.RegisterHandlers(e, handler)
@@ -61,4 +73,62 @@ func main() {
 	log.Println("  GET    /api/stats")
 
 	log.Fatal(e.Start(":8080"))
+}
+
+// startBackgroundProcessor starts a background goroutine to process pending bookmarks
+func startBackgroundProcessor(store *storage.Storage) {
+	go func() {
+		// Create content processor
+		processor, err := services.NewContentProcessor(store)
+		if err != nil {
+			log.Printf("❌ Failed to create background ContentProcessor: %v", err)
+			return
+		}
+
+		log.Println("✅ Background embedding processor started")
+		log.Println("   - Checking for pending bookmarks every 30 seconds")
+		log.Println("   - Processing up to 5 bookmarks per batch")
+
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				// Process pending bookmarks in batches
+				bookmarks, err := store.ListBookmarks()
+				if err != nil {
+					log.Printf("❌ Failed to list bookmarks for background processing: %v", err)
+					continue
+				}
+
+				pendingCount := 0
+				processedCount := 0
+				maxBatch := 5 // Process max 5 per cycle to avoid overwhelming
+
+				for _, bookmark := range bookmarks {
+					if bookmark.Status == "pending" {
+						pendingCount++
+						if processedCount >= maxBatch {
+							continue // Skip processing but count total pending
+						}
+
+						log.Printf("🔄 Background processing bookmark: %s", bookmark.URL)
+
+						err := processor.ProcessBookmarkContent(bookmark.ID)
+						if err != nil {
+							log.Printf("❌ Background processing failed for %s: %v", bookmark.URL, err)
+						} else {
+							log.Printf("✅ Background processing completed for %s", bookmark.URL)
+							processedCount++
+						}
+					}
+				}
+
+				if pendingCount > 0 {
+					log.Printf("📊 Background processor: %d pending bookmarks, %d processed this cycle", pendingCount, processedCount)
+				}
+			}
+		}
+	}()
 }
