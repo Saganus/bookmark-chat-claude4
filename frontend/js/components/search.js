@@ -2,56 +2,84 @@
 
 class SearchComponent {
     constructor(apiClient) {
+        console.log('🔍 SearchComponent constructor called with apiClient:', apiClient);
         this.apiClient = apiClient;
         this.isSearching = false;
         this.init();
     }
 
     init() {
+        console.log('🔍 SearchComponent init called');
         this.bindEvents();
     }
 
     bindEvents() {
+        console.log('🔍 Binding search events...');
+        
         // Search button click
-        $('#searchBtn').on('click', () => this.performSearch());
+        $('#searchBtn').on('click', () => {
+            console.log('🔍 Search button clicked!');
+            this.performSearch();
+        });
 
         // Enter key in search input
         $('#searchQuery').on('keypress', (e) => {
+            console.log('🔍 Key pressed in search input:', e.which);
             if (e.which === 13) { // Enter key
+                console.log('🔍 Enter key pressed, performing search');
                 this.performSearch();
             }
         });
 
         // Clear results when query is empty
         $('#searchQuery').on('input', (e) => {
+            console.log('🔍 Search input changed:', e.target.value);
             if (e.target.value.trim() === '') {
                 this.clearResults();
             }
         });
+        
+        console.log('🔍 Search events bound successfully');
+        console.log('🔍 Search button element found:', $('#searchBtn').length > 0);
+        console.log('🔍 Search input element found:', $('#searchQuery').length > 0);
     }
 
     async performSearch() {
-        if (this.isSearching) return;
+        console.log('🔍 performSearch called, isSearching:', this.isSearching);
+        
+        if (this.isSearching) {
+            console.log('🔍 Already searching, returning');
+            return;
+        }
 
         const query = $('#searchQuery').val().trim();
+        console.log('🔍 Search query:', query);
+        
         if (!query) {
+            console.log('🔍 No query provided');
             this.showError('Please enter a search query');
             return;
         }
 
         const searchType = $('#searchType').val();
         const limit = parseInt($('#searchLimit').val());
+        
+        console.log('🔍 Search parameters:', { query, searchType, limit });
+        console.log('🔍 API client:', this.apiClient);
 
         this.showLoading();
         this.isSearching = true;
 
         try {
+            console.log(`Performing search: query="${query}", type="${searchType}", limit=${limit}`);
+            
             // Call the backend search API using the proper method
             const response = await this.apiClient.searchBookmarks(query, {
                 limit: limit,
                 searchType: searchType
             });
 
+            console.log('Search API response:', response);
             this.displayResults(response, query);
         } catch (error) {
             console.error('Search failed:', error);
@@ -187,15 +215,33 @@ class SearchComponent {
 
 // Initialize search component when page loads
 $(document).ready(() => {
+    console.log('🔍 Search component initialization starting...');
+    console.log('🔍 window.apiClient available:', !!window.apiClient);
+    console.log('🔍 window.app available:', !!window.app);
+    
     // Wait for API client to be available
-    if (window.apiClient) {
+    if (window.app && window.app.api) {
+        console.log('🔍 Using app.api for SearchComponent');
+        window.searchComponent = new SearchComponent(window.app.api);
+    } else if (window.apiClient) {
+        console.log('🔍 Using window.apiClient for SearchComponent');
         window.searchComponent = new SearchComponent(window.apiClient);
     } else {
-        // Retry after a short delay if API client isn't ready
+        console.log('🔍 No API client immediately available, retrying in 500ms...');
+        // Retry after a longer delay if API client isn't ready
         setTimeout(() => {
-            if (window.apiClient) {
+            console.log('🔍 Retry: window.apiClient available:', !!window.apiClient);
+            console.log('🔍 Retry: window.app available:', !!window.app);
+            
+            if (window.app && window.app.api) {
+                console.log('🔍 Retry: Using app.api for SearchComponent');
+                window.searchComponent = new SearchComponent(window.app.api);
+            } else if (window.apiClient) {
+                console.log('🔍 Retry: Using window.apiClient for SearchComponent');
                 window.searchComponent = new SearchComponent(window.apiClient);
+            } else {
+                console.error('🔍 Failed to initialize SearchComponent - no API client available');
             }
-        }, 100);
+        }, 500);
     }
 });

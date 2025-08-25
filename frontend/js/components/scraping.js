@@ -63,13 +63,14 @@ class ScrapingManager {
 
     async loadBookmarks() {
         try {
-            // Use the same data source as bookmark manager
-            if (window.bookmarkManager && window.bookmarkManager.bookmarks) {
-                this.bookmarks = window.bookmarkManager.bookmarks;
-            } else {
-                const response = await this.api.getBookmarks();
-                this.bookmarks = response.bookmarks || response || [];
-            }
+            console.log('Loading bookmarks for scraping tab...');
+            const response = await this.api.getBookmarks();
+            console.log('Scraping API response:', response);
+            
+            // Handle the response structure: { bookmarks: [...], pagination: {...} }
+            this.bookmarks = response.bookmarks || response || [];
+            console.log(`Loaded ${this.bookmarks.length} bookmarks for scraping`);
+            
             this.render();
         } catch (error) {
             console.error('Failed to load bookmarks for scraping:', error);

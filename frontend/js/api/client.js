@@ -22,22 +22,32 @@ class APIClient {
             },
         };
 
+        console.log('🌐 Making API request:', { url, method: config.method || 'GET', body: config.body });
+
         try {
             const response = await fetch(url, config);
+            console.log('🌐 API response status:', response.status);
             
             if (!response.ok) {
                 const errorText = await response.text();
+                console.error('🌐 API error response:', errorText);
                 throw new Error(`HTTP ${response.status}: ${errorText}`);
             }
             
             const contentType = response.headers.get('content-type');
+            console.log('🌐 Response content type:', contentType);
+            
             if (contentType && contentType.includes('application/json')) {
-                return await response.json();
+                const jsonResponse = await response.json();
+                console.log('🌐 JSON response:', jsonResponse);
+                return jsonResponse;
             }
             
-            return await response.text();
+            const textResponse = await response.text();
+            console.log('🌐 Text response:', textResponse);
+            return textResponse;
         } catch (error) {
-            console.error('API request failed:', error);
+            console.error('🌐 API request failed:', error);
             throw error;
         }
     }
@@ -162,14 +172,28 @@ class APIClient {
      * @returns {Promise} Search results
      */
     async searchBookmarks(query, options = {}) {
-        return await this.request('/search', {
-            method: 'POST',
-            body: JSON.stringify({
-                query: query,
-                limit: options.limit || 20,
-                searchType: options.searchType || 'hybrid'
-            })
-        });
+        console.log('🌐 APIClient.searchBookmarks called:', { query, options });
+        console.log('🌐 API base URL:', this.baseURL);
+        
+        const requestPayload = {
+            query: query,
+            limit: options.limit || 20,
+            searchType: options.searchType || 'hybrid'
+        };
+        
+        console.log('🌐 Search request payload:', requestPayload);
+        
+        try {
+            const result = await this.request('/search', {
+                method: 'POST',
+                body: JSON.stringify(requestPayload)
+            });
+            console.log('🌐 Search API response:', result);
+            return result;
+        } catch (error) {
+            console.error('🌐 Search API error:', error);
+            throw error;
+        }
     }
 
     /**

@@ -34,9 +34,31 @@ class BookmarkApp {
         
         this.currentTab = tabName;
         
+        // Refresh data when switching tabs
+        this.refreshTabData(tabName);
+        
         // Update URL hash for deep linking
         if (history.replaceState) {
             history.replaceState(null, null, `#${tabName}`);
+        }
+    }
+
+    refreshTabData(tabName) {
+        // Refresh data for the active tab to ensure components show current database state
+        switch (tabName) {
+            case 'bookmarks':
+                if (window.bookmarkManager) {
+                    window.bookmarkManager.loadBookmarks();
+                }
+                break;
+            case 'scraping':
+                if (window.scrapingManager) {
+                    window.scrapingManager.loadBookmarks();
+                }
+                break;
+            case 'search':
+                // Search tab doesn't need data refresh, it loads on demand
+                break;
         }
     }
 
@@ -53,20 +75,20 @@ class BookmarkApp {
         // Handle browser back/forward buttons
         $(window).on('hashchange', () => {
             const hash = window.location.hash.substring(1);
-            if (hash && ['bookmarks', 'scraping'].includes(hash)) {
+            if (hash && ['bookmarks', 'scraping', 'search'].includes(hash)) {
                 this.showTab(hash);
             }
         });
 
         // Handle initial hash on page load
         const initialHash = window.location.hash.substring(1);
-        if (initialHash && ['bookmarks', 'scraping'].includes(initialHash)) {
+        if (initialHash && ['bookmarks', 'scraping', 'search'].includes(initialHash)) {
             this.showTab(initialHash);
         }
 
         // Keyboard shortcuts
         $(document).on('keydown', (e) => {
-            // Tab switching with Ctrl/Cmd + 1/2
+            // Tab switching with Ctrl/Cmd + 1/2/3
             if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
                 switch (e.which) {
                     case 49: // 1
@@ -76,6 +98,10 @@ class BookmarkApp {
                     case 50: // 2
                         e.preventDefault();
                         this.showTab('scraping');
+                        break;
+                    case 51: // 3
+                        e.preventDefault();
+                        this.showTab('search');
                         break;
                 }
             }
