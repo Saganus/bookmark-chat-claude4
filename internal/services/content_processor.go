@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
+	"time"
 
 	"bookmark-chat/internal/storage"
 )
@@ -36,9 +38,30 @@ func NewContentProcessor(store *storage.Storage) (*ContentProcessor, error) {
 
 // ProcessBookmarkContent scrapes content for a bookmark and generates embeddings
 func (cp *ContentProcessor) ProcessBookmarkContent(bookmarkID string) error {
-	// Get the bookmark
-	bookmark, err := cp.storage.GetBookmark(bookmarkID)
-	if err != nil {
+	// Get the bookmark with retry logic for database lock issues
+	var bookmark *storage.Bookmark
+	var err error
+	
+	// Retry getting bookmark if database is locked
+	maxRetries := 5
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		bookmark, err = cp.storage.GetBookmark(bookmarkID)
+		if err == nil {
+			break
+		}
+		
+		// Check if it's a database lock error
+		if strings.Contains(err.Error(), "database is locked") || 
+		   strings.Contains(err.Error(), "SQLite failure") {
+			if attempt < maxRetries-1 {
+				// Wait with exponential backoff before retrying
+				waitTime := time.Duration(100*(1<<attempt)) * time.Millisecond
+				log.Printf("Database locked, retrying in %v (attempt %d/%d)", waitTime, attempt+1, maxRetries)
+				time.Sleep(waitTime)
+				continue
+			}
+		}
+		
 		return fmt.Errorf("failed to get bookmark: %w", err)
 	}
 

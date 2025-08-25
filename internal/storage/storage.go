@@ -71,10 +71,20 @@ func New(dbPath string) (*Storage, error) {
 		dbPath = "file:bookmarks.db"
 	}
 
+	// Add WAL mode and connection settings for better concurrency handling
+	if !strings.Contains(dbPath, "?") {
+		dbPath += "?_journal=WAL&_timeout=10000&_sync=NORMAL&_cache_size=1000"
+	}
+
 	db, err := sql.Open("libsql", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
+
+	// Configure connection pool for better concurrency
+	db.SetMaxOpenConns(1)     // Single connection to avoid SQLite lock issues
+	db.SetMaxIdleConns(1)     // Keep one idle connection
+	db.SetConnMaxLifetime(0)  // Don't expire connections
 
 	storage := &Storage{db: db}
 
@@ -83,6 +93,34 @@ func New(dbPath string) (*Storage, error) {
 	}
 
 	return storage, nil
+}
+
+// retryWithBackoff executes a function with exponential backoff for database lock errors
+func (s *Storage) retryWithBackoff(operation func() error) error {
+	maxRetries := 5
+	baseDelay := 100 * time.Millisecond
+	
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		err := operation()
+		if err == nil {
+			return nil
+		}
+		
+		// Check if it's a database lock error
+		if strings.Contains(err.Error(), "database is locked") || 
+		   strings.Contains(err.Error(), "SQLite failure") {
+			if attempt < maxRetries-1 {
+				// Exponential backoff: 100ms, 200ms, 400ms, 800ms, 1600ms
+				delay := baseDelay * time.Duration(1<<attempt)
+				time.Sleep(delay)
+				continue
+			}
+		}
+		
+		return err
+	}
+	
+	return fmt.Errorf("operation failed after %d retries", maxRetries)
 }
 
 // Close closes the database connection
@@ -332,7 +370,7 @@ func (s *Storage) GetBookmark(bookmarkID string) (*Bookmark, error) {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("bookmark with ID %s not found", bookmarkID)
 		}
-		return nil, fmt.Errorf("failed to get bookmark: %w", err)
+		return nil, fmt.Errorf("failed to get next row: %w", err)
 	}
 
 	// Parse tags JSON
