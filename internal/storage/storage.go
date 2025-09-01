@@ -757,19 +757,40 @@ func (s *Storage) HybridSearch(queryEmbedding []float32, queryText string) ([]*S
 		return nil, fmt.Errorf("keyword search failed: %w", err)
 	}
 
+	// Normalize keyword scores to 0-1 range using max BM25 score from results
+	s.normalizeBM25Scores(keywordResults)
+
 	// Combine and deduplicate results
 	resultMap := make(map[string]*SearchResult)
 
-	// Add semantic results with weight
+	// Add semantic results with weight and threshold
 	for _, result := range semanticResults {
+		// Apply minimum threshold for semantic results (0.3 = 30% similarity)
+		if result.RelevanceScore < 0.3 {
+			continue
+		}
+		
 		result.RelevanceScore *= 0.7 // Semantic weight
 		result.SearchType = "semantic"
+		
+		// Apply exact word match boost
+		s.applyExactMatchBoost(result, queryText)
+		
 		resultMap[result.Bookmark.ID] = result
 	}
 
 	// Add keyword results, combining scores if bookmark already exists
 	for _, result := range keywordResults {
+		// Apply minimum threshold for keyword results (0.15 normalized BM25)
+		if result.RelevanceScore < 0.15 {
+			continue
+		}
+		
 		result.RelevanceScore *= 0.3 // Keyword weight
+		
+		// Apply exact word match boost before combining
+		s.applyExactMatchBoost(result, queryText)
+		
 		if existing, exists := resultMap[result.Bookmark.ID]; exists {
 			existing.RelevanceScore += result.RelevanceScore
 			existing.SearchType = "hybrid"
@@ -802,6 +823,74 @@ func (s *Storage) HybridSearch(queryEmbedding []float32, queryText string) ([]*S
 	}
 
 	return allResults, nil
+}
+
+// normalizeBM25Scores normalizes BM25 scores to 0-1 range based on the maximum score in results
+func (s *Storage) normalizeBM25Scores(results []*SearchResult) {
+	if len(results) == 0 {
+		return
+	}
+	
+	// Find the maximum BM25 score
+	maxScore := 0.0
+	for _, result := range results {
+		if result.RelevanceScore > maxScore {
+			maxScore = result.RelevanceScore
+		}
+	}
+	
+	// Avoid division by zero
+	if maxScore <= 0 {
+		return
+	}
+	
+	// Normalize all scores to 0-1 range
+	for _, result := range results {
+		result.RelevanceScore = result.RelevanceScore / maxScore
+	}
+}
+
+// applyExactMatchBoost boosts scores for exact word matches in title, description, or content
+func (s *Storage) applyExactMatchBoost(result *SearchResult, queryText string) {
+	if queryText == "" {
+		return
+	}
+	
+	queryWords := strings.Fields(strings.ToLower(queryText))
+	boostApplied := false
+	
+	// Check title for exact word matches
+	titleLower := strings.ToLower(result.Bookmark.Title)
+	for _, word := range queryWords {
+		if strings.Contains(titleLower, word) {
+			result.RelevanceScore *= 1.5 // 50% boost for title matches
+			boostApplied = true
+			break
+		}
+	}
+	
+	// Check description for exact word matches (if not already boosted)
+	if !boostApplied && result.Bookmark.Description != "" {
+		descLower := strings.ToLower(result.Bookmark.Description)
+		for _, word := range queryWords {
+			if strings.Contains(descLower, word) {
+				result.RelevanceScore *= 1.3 // 30% boost for description matches
+				boostApplied = true
+				break
+			}
+		}
+	}
+	
+	// Check content for exact word matches (if not already boosted)
+	if !boostApplied && result.Content != nil && result.Content.CleanText != "" {
+		contentLower := strings.ToLower(result.Content.CleanText)
+		for _, word := range queryWords {
+			if strings.Contains(contentLower, word) {
+				result.RelevanceScore *= 1.2 // 20% boost for content matches
+				break
+			}
+		}
+	}
 }
 
 // semanticSearch performs vector similarity search using libSQL vector functions
