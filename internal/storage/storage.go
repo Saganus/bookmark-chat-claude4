@@ -763,18 +763,21 @@ func (s *Storage) HybridSearch(queryEmbedding []float32, queryText string) ([]*S
 	// Combine and deduplicate results
 	resultMap := make(map[string]*SearchResult)
 
-	// Add semantic results with weight and threshold
+	// Add semantic results with rebalanced weight and threshold
 	for _, result := range semanticResults {
 		// Apply minimum threshold for semantic results (0.3 = 30% similarity)
 		if result.RelevanceScore < 0.3 {
 			continue
 		}
 		
-		result.RelevanceScore *= 0.7 // Semantic weight
+		result.RelevanceScore *= 0.4 // Rebalanced semantic weight (was 0.7, now 0.4)
 		result.SearchType = "semantic"
 		
 		// Apply exact word match boost
 		s.applyExactMatchBoost(result, queryText)
+		
+		// Apply field-specific boosting (title, URL)
+		s.applyFieldSpecificBoost(result, queryText)
 		
 		resultMap[result.Bookmark.ID] = result
 	}
@@ -786,10 +789,13 @@ func (s *Storage) HybridSearch(queryEmbedding []float32, queryText string) ([]*S
 			continue
 		}
 		
-		result.RelevanceScore *= 0.3 // Keyword weight
+		result.RelevanceScore *= 0.6 // Rebalanced keyword weight (was 0.3, now 0.6)
 		
 		// Apply exact word match boost before combining
 		s.applyExactMatchBoost(result, queryText)
+		
+		// Apply field-specific boosting (title, URL)
+		s.applyFieldSpecificBoost(result, queryText)
 		
 		if existing, exists := resultMap[result.Bookmark.ID]; exists {
 			existing.RelevanceScore += result.RelevanceScore
@@ -889,6 +895,53 @@ func (s *Storage) applyExactMatchBoost(result *SearchResult, queryText string) {
 				result.RelevanceScore *= 1.2 // 20% boost for content matches
 				break
 			}
+		}
+	}
+}
+
+// applyFieldSpecificBoost applies high-priority boosts for exact matches in title and URL
+func (s *Storage) applyFieldSpecificBoost(result *SearchResult, queryText string) {
+	if queryText == "" {
+		return
+	}
+	
+	queryLower := strings.ToLower(queryText)
+	titleLower := strings.ToLower(result.Bookmark.Title)
+	urlLower := strings.ToLower(result.Bookmark.URL)
+	
+	// Check for exact title match (case-insensitive)
+	if strings.Contains(titleLower, queryLower) {
+		result.RelevanceScore *= 3.0 // 3x boost for exact title matches
+		return // Don't apply URL boost if title already matched
+	}
+	
+	// Check for URL matches (domain, path, or query parameters)
+	if strings.Contains(urlLower, queryLower) {
+		result.RelevanceScore *= 2.0 // 2x boost for URL matches
+		return
+	}
+	
+	// Check for individual word matches in title (less aggressive than exact match)
+	queryWords := strings.Fields(queryLower)
+	titleWords := strings.Fields(titleLower)
+	
+	titleMatches := 0
+	for _, queryWord := range queryWords {
+		for _, titleWord := range titleWords {
+			if queryWord == titleWord {
+				titleMatches++
+				break
+			}
+		}
+	}
+	
+	// Apply graduated boost based on word matches in title
+	if titleMatches > 0 {
+		matchRatio := float64(titleMatches) / float64(len(queryWords))
+		if matchRatio >= 0.5 { // 50% or more words match
+			result.RelevanceScore *= 2.0 // 2x boost for high word match ratio
+		} else if matchRatio >= 0.25 { // 25% or more words match
+			result.RelevanceScore *= 1.5 // 1.5x boost for moderate word match ratio
 		}
 	}
 }
