@@ -178,6 +178,108 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /api/bookmarks/{id}/categorize:
+    post:
+      summary: Categorize a single bookmark using AI
+      description: Analyze bookmark content and suggest categories and tags using OpenAI
+      operationId: categorizeBookmark
+      tags:
+        - bookmarks
+      parameters:
+        - $ref: '#/components/parameters/BookmarkId'
+      responses:
+        '200':
+          description: Categorization suggestions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategorizationResult'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/bookmarks/categorize/bulk:
+    post:
+      summary: Bulk categorize bookmarks
+      description: Categorize multiple bookmarks in batch with optional auto-apply
+      operationId: categorizeBulk
+      tags:
+        - bookmarks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - bookmark_ids
+              properties:
+                bookmark_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  description: Array of bookmark IDs to categorize
+                auto_apply:
+                  type: boolean
+                  default: false
+                  description: Automatically apply categorizations above threshold
+                confidence_threshold:
+                  type: number
+                  default: 0.8
+                  minimum: 0.0
+                  maximum: 1.0
+                  description: Confidence threshold for auto-apply
+      responses:
+        '200':
+          description: Bulk categorization results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        bookmark_id:
+                          type: string
+                          format: uuid
+                        categorization:
+                          $ref: '#/components/schemas/CategorizationResult'
+                        applied:
+                          type: boolean
+                  total_processed:
+                    type: integer
+                  total_applied:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # Categories Management
+  /api/categories:
+    get:
+      summary: Get all user categories
+      description: Retrieve all categories with usage statistics
+      operationId: getCategories
+      tags:
+        - categories
+      responses:
+        '200':
+          description: List of categories with usage stats
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Category'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
   # Bulk Scraping Endpoints
   /api/scraping/start:
     post:
@@ -564,6 +666,70 @@ components:
         pagination:
           $ref: '#/components/schemas/Pagination'
 
+    # Categorization schemas
+    CategorizationResult:
+      type: object
+      required:
+        - primary_category
+        - confidence_score
+      properties:
+        primary_category:
+          type: string
+          description: Most relevant category for the bookmark
+        secondary_categories:
+          type: array
+          items:
+            type: string
+          description: Additional relevant categories
+        tags:
+          type: array
+          items:
+            type: string
+          description: Specific tags for enhanced searchability
+        confidence_score:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+          description: AI confidence in the categorization
+        reasoning:
+          type: string
+          description: Brief explanation of the categorization decision
+
+    Category:
+      type: object
+      required:
+        - id
+        - name
+        - usage_count
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+          description: Unique category identifier
+        name:
+          type: string
+          description: Category name
+        parent_category:
+          type: string
+          nullable: true
+          description: Parent category for hierarchical organization
+        color:
+          type: string
+          description: Color code for UI display
+        usage_count:
+          type: integer
+          description: Number of bookmarks using this category
+        created_at:
+          type: string
+          format: date-time
+          description: Category creation timestamp
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp
+
     # Import schemas
     ImportResponse:
       type: object
@@ -867,6 +1033,8 @@ components:
 tags:
   - name: bookmarks
     description: Bookmark management operations
+  - name: categories
+    description: AI-powered categorization operations
   - name: search
     description: Search operations
   - name: chat

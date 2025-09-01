@@ -14,11 +14,12 @@ import (
 )
 
 type Handler struct {
-	importService    *services.ImportService
-	contentProcessor *services.ContentProcessor
-	storage          *storage.Storage
-	scraper          services.Scraper
-	bulkScraper      *services.BulkScraper
+	importService         *services.ImportService
+	contentProcessor      *services.ContentProcessor
+	categorizationService *services.CategorizationService
+	storage               *storage.Storage
+	scraper               services.Scraper
+	bulkScraper           *services.BulkScraper
 }
 
 func NewHandler(storage *storage.Storage) *Handler {
@@ -40,12 +41,22 @@ func NewHandler(storage *storage.Storage) *Handler {
 		fmt.Printf("✅ ContentProcessor initialized successfully (embeddings enabled)\n")
 	}
 
+	// Initialize categorization service
+	categorizationService, err := services.NewCategorizationService(storage)
+	if err != nil {
+		fmt.Printf("⚠️  Failed to create CategorizationService (categorization disabled): %v\n", err)
+		categorizationService = nil
+	} else {
+		fmt.Printf("✅ CategorizationService initialized successfully\n")
+	}
+
 	return &Handler{
-		importService:    services.NewImportService(storage),
-		contentProcessor: contentProcessor,
-		storage:          storage,
-		scraper:          scraper,
-		bulkScraper:      services.NewBulkScraper(scraper, storage),
+		importService:         services.NewImportService(storage),
+		contentProcessor:      contentProcessor,
+		categorizationService: categorizationService,
+		storage:               storage,
+		scraper:               scraper,
+		bulkScraper:           services.NewBulkScraper(scraper, storage),
 	}
 }
 
@@ -734,4 +745,188 @@ func (h *Handler) StopScraping(ctx echo.Context) error {
 func (h *Handler) GetScrapingStatus(ctx echo.Context) error {
 	status := h.bulkScraper.GetStatus()
 	return ctx.JSON(http.StatusOK, status)
+}
+
+// Categorization Handlers
+
+// Categorize a single bookmark using AI
+// (POST /api/bookmarks/{id}/categorize)
+func (h *Handler) CategorizeBookmark(ctx echo.Context, id api.BookmarkId) error {
+	if h.categorizationService == nil {
+		return ctx.JSON(http.StatusServiceUnavailable, api.Error{
+			Error:   "service_unavailable",
+			Message: "Categorization service is not available (OPENAI_API_KEY not configured)",
+		})
+	}
+
+	ctx.Logger().Infof("🤖 Starting categorization for bookmark: %s", id.String())
+
+	result, err := h.categorizationService.CategorizeBookmark(ctx.Request().Context(), id.String())
+	if err != nil {
+		ctx.Logger().Errorf("❌ Categorization failed for bookmark %s: %v", id.String(), err)
+		return ctx.JSON(http.StatusInternalServerError, api.Error{
+			Error:   "categorization_failed",
+			Message: err.Error(),
+		})
+	}
+
+	ctx.Logger().Infof("✅ Categorized bookmark %s: primary=%s, confidence=%.2f", 
+		id.String(), result.PrimaryCategory, result.ConfidenceScore)
+
+	// Convert to API format
+	response := api.CategorizationResult{
+		PrimaryCategory:     result.PrimaryCategory,
+		SecondaryCategories: &result.SecondaryCategories,
+		Tags:                &result.Tags,
+		ConfidenceScore:     float32(result.ConfidenceScore),
+		Reasoning:           &result.Reasoning,
+	}
+
+	return ctx.JSON(http.StatusOK, response)
+}
+
+// Bulk categorize bookmarks
+// (POST /api/bookmarks/categorize/bulk)
+func (h *Handler) CategorizeBulk(ctx echo.Context) error {
+	if h.categorizationService == nil {
+		return ctx.JSON(http.StatusServiceUnavailable, api.Error{
+			Error:   "service_unavailable",
+			Message: "Categorization service is not available (OPENAI_API_KEY not configured)",
+		})
+	}
+
+	var req struct {
+		BookmarkIds         []uuid.UUID `json:"bookmark_ids"`
+		AutoApply          bool        `json:"auto_apply"`
+		ConfidenceThreshold float64     `json:"confidence_threshold"`
+	}
+
+	if err := ctx.Bind(&req); err != nil {
+		return ctx.JSON(http.StatusBadRequest, api.Error{
+			Error:   "bad_request",
+			Message: "Invalid request body",
+		})
+	}
+
+	if len(req.BookmarkIds) == 0 {
+		return ctx.JSON(http.StatusBadRequest, api.Error{
+			Error:   "bad_request",
+			Message: "No bookmark IDs provided",
+		})
+	}
+
+	// Default confidence threshold
+	if req.ConfidenceThreshold == 0 {
+		req.ConfidenceThreshold = 0.8
+	}
+
+	// Convert UUIDs to strings
+	bookmarkIDs := make([]string, len(req.BookmarkIds))
+	for i, id := range req.BookmarkIds {
+		bookmarkIDs[i] = id.String()
+	}
+
+	ctx.Logger().Infof("🚀 Starting bulk categorization for %d bookmarks (auto_apply=%v, threshold=%.2f)", 
+		len(bookmarkIDs), req.AutoApply, req.ConfidenceThreshold)
+
+	results, err := h.categorizationService.BulkCategorize(
+		ctx.Request().Context(),
+		bookmarkIDs,
+		req.AutoApply,
+		req.ConfidenceThreshold,
+	)
+	if err != nil {
+		ctx.Logger().Errorf("❌ Bulk categorization failed: %v", err)
+		return ctx.JSON(http.StatusInternalServerError, api.Error{
+			Error:   "categorization_failed",
+			Message: err.Error(),
+		})
+	}
+
+	// Count auto-applied results
+	appliedCount := 0
+	for _, result := range results {
+		if req.AutoApply && result.ConfidenceScore >= req.ConfidenceThreshold {
+			appliedCount++
+		}
+	}
+
+	ctx.Logger().Infof("✅ Bulk categorization complete: %d processed, %d applied", len(results), appliedCount)
+
+	// Build response
+	responseResults := make([]struct {
+		BookmarkId     uuid.UUID                 `json:"bookmark_id"`
+		Categorization api.CategorizationResult `json:"categorization"`
+		Applied        bool                      `json:"applied"`
+	}, len(results))
+
+	for i, result := range results {
+		bookmarkUUID, _ := uuid.Parse(bookmarkIDs[i])
+		applied := req.AutoApply && result.ConfidenceScore >= req.ConfidenceThreshold
+
+		responseResults[i] = struct {
+			BookmarkId     uuid.UUID                 `json:"bookmark_id"`
+			Categorization api.CategorizationResult `json:"categorization"`
+			Applied        bool                      `json:"applied"`
+		}{
+			BookmarkId: bookmarkUUID,
+			Categorization: api.CategorizationResult{
+				PrimaryCategory:     result.PrimaryCategory,
+				SecondaryCategories: &result.SecondaryCategories,
+				Tags:                &result.Tags,
+				ConfidenceScore:     float32(result.ConfidenceScore),
+				Reasoning:           &result.Reasoning,
+			},
+			Applied: applied,
+		}
+	}
+
+	response := struct {
+		Results         interface{} `json:"results"`
+		TotalProcessed  int         `json:"total_processed"`
+		TotalApplied    int         `json:"total_applied"`
+	}{
+		Results:        responseResults,
+		TotalProcessed: len(results),
+		TotalApplied:   appliedCount,
+	}
+
+	return ctx.JSON(http.StatusOK, response)
+}
+
+// Get all user categories
+// (GET /api/categories)
+func (h *Handler) GetCategories(ctx echo.Context) error {
+	ctx.Logger().Infof("📂 Retrieving categories...")
+
+	categories, err := h.storage.GetCategories(ctx.Request().Context())
+	if err != nil {
+		ctx.Logger().Errorf("❌ Failed to get categories: %v", err)
+		return ctx.JSON(http.StatusInternalServerError, api.Error{
+			Error:   "database_error",
+			Message: "Failed to retrieve categories",
+		})
+	}
+
+	// Convert to API format
+	apiCategories := make([]api.Category, len(categories))
+	for i, cat := range categories {
+		var color *string
+		if cat.Color != "" {
+			color = &cat.Color
+		}
+		
+		apiCategories[i] = api.Category{
+			Id:             cat.ID,
+			Name:           cat.Name,
+			ParentCategory: cat.ParentCategory,
+			Color:          color,
+			UsageCount:     cat.UsageCount,
+			CreatedAt:      cat.CreatedAt,
+			UpdatedAt:      cat.UpdatedAt,
+		}
+	}
+
+	ctx.Logger().Infof("✅ Retrieved %d categories", len(apiCategories))
+	return ctx.JSON(http.StatusOK, apiCategories)
 }

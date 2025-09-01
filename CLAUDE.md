@@ -19,7 +19,7 @@ This is a bookmark chat system that allows users to interact with their bookmark
 # Generate server code from OpenAPI spec
 oapi-codegen -package api -generate types,server,spec api/openapi.yaml > api/generated/server.gen.go
 
-# Run the server
+# Run the server (requires OPENAI_API_KEY env var for full functionality)
 go run cmd/server/main.go
 
 # Build the server
@@ -39,6 +39,9 @@ go run examples/storage_example.go
 
 # Update dependencies
 go mod tidy
+
+# Start server with environment variables
+OPENAI_API_KEY=your_key_here go run cmd/server/main.go
 ```
 
 ## Architecture Overview
@@ -79,12 +82,13 @@ The system exposes these main endpoint groups:
 - `/api/health`, `/api/stats` - System monitoring
 
 ### Key Technologies
-- **Go + Echo**: High-performance API server
-- **OpenAPI + oapi-codegen**: Type-safe API development
-- **libSQL**: SQLite with vector extensions for embeddings
+- **Go + Echo**: High-performance API server with middleware support
+- **OpenAPI + oapi-codegen**: Type-safe API development and code generation
+- **libSQL**: SQLite with vector extensions for embeddings storage
 - **OpenAI API**: Embeddings (text-embedding-3-small) and chat (GPT-4)
-- **goquery**: HTML parsing and content extraction
-- **FTS5**: Full-text search with BM25 ranking
+- **goquery**: HTML parsing and content extraction with CSS selectors
+- **FTS5**: Full-text search with BM25 ranking and snippet generation
+- **jQuery**: Frontend DOM manipulation and AJAX calls (no build system needed)
 
 ## Current State
 
@@ -138,6 +142,10 @@ The project is now feature-complete with a working bookmark management system:
 6. Frontend uses vanilla JavaScript with jQuery - no build system required
 7. Do not add "🤖 Generated with [Claude Code](https://claude.ai/code) Co-Authored-By: Claude <noreply@anthropic.com>" when doing git commit
 
+### Environment Variables
+- **OPENAI_API_KEY**: Required for embeddings generation and semantic search (optional, falls back to keyword-only search)
+- Store in `.env` file in project root for development
+
 ### Frontend Architecture:
 - **3-Tab Interface**: Bookmarks (tree view), Scraping (bulk operations), Search (hybrid search)
 - **Components**: Modular JavaScript components with event handling and API integration
@@ -150,8 +158,9 @@ The storage layer (`internal/storage/`) provides:
 - Complete CRUD operations for bookmarks and content
 - Vector embeddings storage with F32_BLOB(1536) for text-embedding-3-small
 - Hybrid search combining semantic similarity and FTS5 keyword search
-- Batch operations for efficient bulk processing
-- See `internal/storage/README.md` for comprehensive usage examples
+- Batch operations for efficient bulk processing with transactions
+- Database migrations and schema management
+- See `internal/storage/README.md` for comprehensive usage examples and API documentation
 
 ### Testing Strategy
 - Run `go test ./...` for all tests

@@ -118,6 +118,48 @@ type BookmarkUpdate struct {
 	Title       *string   `json:"title,omitempty"`
 }
 
+// CategorizationResult defines model for CategorizationResult.
+type CategorizationResult struct {
+	// ConfidenceScore AI confidence in the categorization
+	ConfidenceScore float32 `json:"confidence_score"`
+
+	// PrimaryCategory Most relevant category for the bookmark
+	PrimaryCategory string `json:"primary_category"`
+
+	// Reasoning Brief explanation of the categorization decision
+	Reasoning *string `json:"reasoning,omitempty"`
+
+	// SecondaryCategories Additional relevant categories
+	SecondaryCategories *[]string `json:"secondary_categories,omitempty"`
+
+	// Tags Specific tags for enhanced searchability
+	Tags *[]string `json:"tags,omitempty"`
+}
+
+// Category defines model for Category.
+type Category struct {
+	// Color Color code for UI display
+	Color *string `json:"color,omitempty"`
+
+	// CreatedAt Category creation timestamp
+	CreatedAt time.Time `json:"created_at"`
+
+	// Id Unique category identifier
+	Id int `json:"id"`
+
+	// Name Category name
+	Name string `json:"name"`
+
+	// ParentCategory Parent category for hierarchical organization
+	ParentCategory *string `json:"parent_category"`
+
+	// UpdatedAt Last update timestamp
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// UsageCount Number of bookmarks using this category
+	UsageCount int `json:"usage_count"`
+}
+
 // ChatRequest defines model for ChatRequest.
 type ChatRequest struct {
 	// Context Additional context bookmark IDs
@@ -294,6 +336,18 @@ type ListBookmarksParams struct {
 // ListBookmarksParamsSort defines parameters for ListBookmarks.
 type ListBookmarksParamsSort string
 
+// CategorizeBulkJSONBody defines parameters for CategorizeBulk.
+type CategorizeBulkJSONBody struct {
+	// AutoApply Automatically apply categorizations above threshold
+	AutoApply *bool `json:"auto_apply,omitempty"`
+
+	// BookmarkIds Array of bookmark IDs to categorize
+	BookmarkIds []openapi_types.UUID `json:"bookmark_ids"`
+
+	// ConfidenceThreshold Confidence threshold for auto-apply
+	ConfidenceThreshold *float32 `json:"confidence_threshold,omitempty"`
+}
+
 // ImportBookmarksMultipartBody defines parameters for ImportBookmarks.
 type ImportBookmarksMultipartBody struct {
 	// File Bookmark file (JSON or HTML format)
@@ -305,6 +359,9 @@ type StartScrapingJSONBody struct {
 	// BookmarkIds Array of bookmark IDs to scrape
 	BookmarkIds []openapi_types.UUID `json:"bookmark_ids"`
 }
+
+// CategorizeBulkJSONRequestBody defines body for CategorizeBulk for application/json ContentType.
+type CategorizeBulkJSONRequestBody CategorizeBulkJSONBody
 
 // ImportBookmarksMultipartRequestBody defines body for ImportBookmarks for multipart/form-data ContentType.
 type ImportBookmarksMultipartRequestBody ImportBookmarksMultipartBody
@@ -326,6 +383,9 @@ type ServerInterface interface {
 	// List all bookmarks
 	// (GET /api/bookmarks)
 	ListBookmarks(ctx echo.Context, params ListBookmarksParams) error
+	// Bulk categorize bookmarks
+	// (POST /api/bookmarks/categorize/bulk)
+	CategorizeBulk(ctx echo.Context) error
 	// Import bookmarks from file
 	// (POST /api/bookmarks/import)
 	ImportBookmarks(ctx echo.Context) error
@@ -338,9 +398,15 @@ type ServerInterface interface {
 	// Update bookmark
 	// (PUT /api/bookmarks/{id})
 	UpdateBookmark(ctx echo.Context, id BookmarkId) error
+	// Categorize a single bookmark using AI
+	// (POST /api/bookmarks/{id}/categorize)
+	CategorizeBookmark(ctx echo.Context, id BookmarkId) error
 	// Re-scrape bookmark content
 	// (POST /api/bookmarks/{id}/rescrape)
 	RescrapeBookmark(ctx echo.Context, id BookmarkId) error
+	// Get all user categories
+	// (GET /api/categories)
+	GetCategories(ctx echo.Context) error
 	// Send chat message
 	// (POST /api/chat)
 	SendChatMessage(ctx echo.Context) error
@@ -420,6 +486,15 @@ func (w *ServerInterfaceWrapper) ListBookmarks(ctx echo.Context) error {
 	return err
 }
 
+// CategorizeBulk converts echo context to params.
+func (w *ServerInterfaceWrapper) CategorizeBulk(ctx echo.Context) error {
+	var err error
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.CategorizeBulk(ctx)
+	return err
+}
+
 // ImportBookmarks converts echo context to params.
 func (w *ServerInterfaceWrapper) ImportBookmarks(ctx echo.Context) error {
 	var err error
@@ -477,6 +552,22 @@ func (w *ServerInterfaceWrapper) UpdateBookmark(ctx echo.Context) error {
 	return err
 }
 
+// CategorizeBookmark converts echo context to params.
+func (w *ServerInterfaceWrapper) CategorizeBookmark(ctx echo.Context) error {
+	var err error
+	// ------------- Path parameter "id" -------------
+	var id BookmarkId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", ctx.Param("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter id: %s", err))
+	}
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.CategorizeBookmark(ctx, id)
+	return err
+}
+
 // RescrapeBookmark converts echo context to params.
 func (w *ServerInterfaceWrapper) RescrapeBookmark(ctx echo.Context) error {
 	var err error
@@ -490,6 +581,15 @@ func (w *ServerInterfaceWrapper) RescrapeBookmark(ctx echo.Context) error {
 
 	// Invoke the callback with all the unmarshaled arguments
 	err = w.Handler.RescrapeBookmark(ctx, id)
+	return err
+}
+
+// GetCategories converts echo context to params.
+func (w *ServerInterfaceWrapper) GetCategories(ctx echo.Context) error {
+	var err error
+
+	// Invoke the callback with all the unmarshaled arguments
+	err = w.Handler.GetCategories(ctx)
 	return err
 }
 
@@ -628,11 +728,14 @@ func RegisterHandlersWithBaseURL(router EchoRouter, si ServerInterface, baseURL 
 	}
 
 	router.GET(baseURL+"/api/bookmarks", wrapper.ListBookmarks)
+	router.POST(baseURL+"/api/bookmarks/categorize/bulk", wrapper.CategorizeBulk)
 	router.POST(baseURL+"/api/bookmarks/import", wrapper.ImportBookmarks)
 	router.DELETE(baseURL+"/api/bookmarks/:id", wrapper.DeleteBookmark)
 	router.GET(baseURL+"/api/bookmarks/:id", wrapper.GetBookmark)
 	router.PUT(baseURL+"/api/bookmarks/:id", wrapper.UpdateBookmark)
+	router.POST(baseURL+"/api/bookmarks/:id/categorize", wrapper.CategorizeBookmark)
 	router.POST(baseURL+"/api/bookmarks/:id/rescrape", wrapper.RescrapeBookmark)
+	router.GET(baseURL+"/api/categories", wrapper.GetCategories)
 	router.POST(baseURL+"/api/chat", wrapper.SendChatMessage)
 	router.GET(baseURL+"/api/chat/conversations", wrapper.ListConversations)
 	router.GET(baseURL+"/api/chat/conversations/:id", wrapper.GetConversation)
@@ -650,55 +753,65 @@ func RegisterHandlersWithBaseURL(router EchoRouter, si ServerInterface, baseURL 
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
-	"AP//kHHC+BdAAAA=",
+	"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",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file

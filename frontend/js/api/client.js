@@ -221,6 +221,44 @@ class APIClient {
     async getStats() {
         return await this.request('/stats');
     }
+
+    /**
+     * Categorize a single bookmark using AI
+     * @param {string} bookmarkId - Bookmark UUID
+     * @returns {Promise} Categorization result
+     */
+    async categorizeBookmark(bookmarkId) {
+        console.log('🤖 APIClient.categorizeBookmark called:', bookmarkId);
+        return await this.request(`/bookmarks/${bookmarkId}/categorize`, {
+            method: 'POST'
+        });
+    }
+
+    /**
+     * Bulk categorize multiple bookmarks
+     * @param {Object} options - Categorization options
+     * @returns {Promise} Bulk categorization results
+     */
+    async bulkCategorize(options) {
+        console.log('🚀 APIClient.bulkCategorize called:', options);
+        return await this.request('/bookmarks/categorize/bulk', {
+            method: 'POST',
+            body: JSON.stringify({
+                bookmark_ids: options.bookmark_ids || [],
+                auto_apply: options.auto_apply || false,
+                confidence_threshold: options.confidence_threshold || 0.8
+            })
+        });
+    }
+
+    /**
+     * Get all categories with usage statistics
+     * @returns {Promise} Categories list
+     */
+    async getCategories() {
+        console.log('📂 APIClient.getCategories called');
+        return await this.request('/categories');
+    }
 }
 
 // Export for use in other modules

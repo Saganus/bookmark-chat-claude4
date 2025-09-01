@@ -213,35 +213,5 @@ class SearchComponent {
     }
 }
 
-// Initialize search component when page loads
-$(document).ready(() => {
-    console.log('🔍 Search component initialization starting...');
-    console.log('🔍 window.apiClient available:', !!window.apiClient);
-    console.log('🔍 window.app available:', !!window.app);
-    
-    // Wait for API client to be available
-    if (window.app && window.app.api) {
-        console.log('🔍 Using app.api for SearchComponent');
-        window.searchComponent = new SearchComponent(window.app.api);
-    } else if (window.apiClient) {
-        console.log('🔍 Using window.apiClient for SearchComponent');
-        window.searchComponent = new SearchComponent(window.apiClient);
-    } else {
-        console.log('🔍 No API client immediately available, retrying in 500ms...');
-        // Retry after a longer delay if API client isn't ready
-        setTimeout(() => {
-            console.log('🔍 Retry: window.apiClient available:', !!window.apiClient);
-            console.log('🔍 Retry: window.app available:', !!window.app);
-            
-            if (window.app && window.app.api) {
-                console.log('🔍 Retry: Using app.api for SearchComponent');
-                window.searchComponent = new SearchComponent(window.app.api);
-            } else if (window.apiClient) {
-                console.log('🔍 Retry: Using window.apiClient for SearchComponent');
-                window.searchComponent = new SearchComponent(window.apiClient);
-            } else {
-                console.error('🔍 Failed to initialize SearchComponent - no API client available');
-            }
-        }, 500);
-    }
-});
+// Export for global access
+window.SearchComponent = SearchComponent;

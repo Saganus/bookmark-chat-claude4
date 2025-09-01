@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="css/components/modal.css">
     <link rel="stylesheet" href="css/components/bookmarks.css">
     <link rel="stylesheet" href="css/components/search.css">
+    <link rel="stylesheet" href="css/components/categories.css">
     <link rel="stylesheet" href="css/responsive.css">
 </head>
 <body>
@@ -22,6 +23,7 @@
                 <button class="tab-btn active" data-tab="bookmarks">Bookmarks</button>
                 <button class="tab-btn" data-tab="scraping">Scraping</button>
                 <button class="tab-btn" data-tab="search">Search</button>
+                <button class="tab-btn" data-tab="categories">Categories</button>
             </nav>
 
             <!-- Bookmarks Tab Content -->
@@ -106,6 +108,47 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Categories Tab Content -->
+            <div id="categoriesTab" class="tab-content">
+                <div class="categories-header">
+                    <div class="categories-actions">
+                        <button class="btn btn-primary" id="bulkCategorizeBtn">
+                            <span class="btn-icon">🤖</span>
+                            Categorize Uncategorized Bookmarks
+                        </button>
+                        <button class="btn btn-secondary" id="refreshCategoriesBtn">
+                            <span class="btn-icon">🔄</span>
+                            Refresh
+                        </button>
+                    </div>
+                    
+                    <div class="categorization-progress" style="display: none;">
+                        <div class="progress-bar-container">
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: 0%"></div>
+                            </div>
+                        </div>
+                        <p class="progress-text">Categorizing bookmarks...</p>
+                    </div>
+                </div>
+                
+                <div class="categories-grid">
+                    <div class="categories-overview">
+                        <h3>Categories Overview</h3>
+                        <div id="categoryList" class="category-list">
+                            <p class="empty-state">No categories yet. Start categorizing bookmarks to see them here!</p>
+                        </div>
+                    </div>
+                    
+                    <div class="categorization-queue">
+                        <h3>Recent Categorizations</h3>
+                        <div id="recentCategorizations" class="recent-categorizations">
+                            <p class="empty-state">Recent categorizations will appear here</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </main>
     </div>
 
@@ -160,6 +203,7 @@
     <script src="js/components/bookmarks.js"></script>
     <script src="js/components/scraping.js"></script>
     <script src="js/components/search.js"></script>
+    <script src="js/components/categories.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>

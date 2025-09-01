@@ -59,6 +59,11 @@ class BookmarkApp {
             case 'search':
                 // Search tab doesn't need data refresh, it loads on demand
                 break;
+            case 'categories':
+                if (window.categoriesManager) {
+                    window.categoriesManager.loadCategories();
+                }
+                break;
         }
     }
 
@@ -67,6 +72,8 @@ class BookmarkApp {
         window.importHandler = new ImportHandler(this.api);
         window.bookmarkManager = new BookmarkManager(this.api);
         window.scrapingManager = new ScrapingManager(this.api);
+        window.searchManager = new SearchComponent(this.api);
+        window.categoriesManager = new CategoriesComponent(this.api);
         
         console.log('Application components initialized');
     }
@@ -75,14 +82,14 @@ class BookmarkApp {
         // Handle browser back/forward buttons
         $(window).on('hashchange', () => {
             const hash = window.location.hash.substring(1);
-            if (hash && ['bookmarks', 'scraping', 'search'].includes(hash)) {
+            if (hash && ['bookmarks', 'scraping', 'search', 'categories'].includes(hash)) {
                 this.showTab(hash);
             }
         });
 
         // Handle initial hash on page load
         const initialHash = window.location.hash.substring(1);
-        if (initialHash && ['bookmarks', 'scraping', 'search'].includes(initialHash)) {
+        if (initialHash && ['bookmarks', 'scraping', 'search', 'categories'].includes(initialHash)) {
             this.showTab(initialHash);
         }
 
@@ -102,6 +109,10 @@ class BookmarkApp {
                     case 51: // 3
                         e.preventDefault();
                         this.showTab('search');
+                        break;
+                    case 52: // 4
+                        e.preventDefault();
+                        this.showTab('categories');
                         break;
                 }
             }
@@ -177,7 +188,7 @@ $(document).ready(() => {
     }
 
     // Check if required classes are loaded
-    const requiredClasses = ['APIClient', 'ImportHandler', 'BookmarkManager', 'ScrapingManager'];
+    const requiredClasses = ['APIClient', 'ImportHandler', 'BookmarkManager', 'ScrapingManager', 'SearchComponent', 'CategoriesComponent'];
     const missingClasses = requiredClasses.filter(className => typeof window[className] === 'undefined');
     
     if (missingClasses.length > 0) {

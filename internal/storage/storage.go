@@ -92,6 +92,11 @@ func New(dbPath string) (*Storage, error) {
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
 
+	// Apply categorization migration
+	if err := storage.applyCategorization(); err != nil {
+		return nil, fmt.Errorf("failed to apply categorization migration: %w", err)
+	}
+
 	return storage, nil
 }
 
