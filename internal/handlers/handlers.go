@@ -418,6 +418,14 @@ func (h *Handler) SearchBookmarks(ctx echo.Context) error {
 			continue
 		}
 
+		// Use Content's ScrapedAt if available, otherwise use Bookmark's ScrapedAt
+		var scrapedAt *time.Time
+		if result.Content != nil && !result.Content.ScrapedAt.IsZero() {
+			scrapedAt = &result.Content.ScrapedAt
+		} else {
+			scrapedAt = result.Bookmark.ScrapedAt
+		}
+
 		apiResult := api.SearchResult{
 			Bookmark: api.Bookmark{
 				Id:          bookmarkUUID,
@@ -429,7 +437,7 @@ func (h *Handler) SearchBookmarks(ctx echo.Context) error {
 				Tags:        &result.Bookmark.Tags,
 				CreatedAt:   result.Bookmark.CreatedAt,
 				UpdatedAt:   result.Bookmark.UpdatedAt,
-				ScrapedAt:   result.Bookmark.ScrapedAt,
+				ScrapedAt:   scrapedAt,
 			},
 			RelevanceScore: float32(result.RelevanceScore),
 		}

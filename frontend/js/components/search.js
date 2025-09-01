@@ -131,7 +131,7 @@ class SearchComponent {
         const score = (result.relevance_score * 100).toFixed(1);
         const snippet = result.snippet || this.generateSnippet(bookmark.content, 150);
         
-        // Format dates
+        // Format dates - check for both null and undefined due to omitempty JSON tag
         const scrapedDate = bookmark.scraped_at ? 
             new Date(bookmark.scraped_at).toLocaleDateString() : 'Not scraped';
         
